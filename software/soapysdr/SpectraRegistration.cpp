@@ -1,8 +1,6 @@
 /*
  * SoapySDR driver for the Spectra SDR.
- * Adapted from enjoy-digital/litex_m2sdr.
  *
- * Copyright (c) 2021-2026 Enjoy Digital.
  * Copyright (c) 2026 Hallycon Ventures.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,7 +20,7 @@
 #define MAX_DEVICES 8
 #define LITEX_IDENTIFIER_SIZE 256
 
-/* Accept both our ident string and the upstream one for compatibility */
+/* Accepted ident strings */
 #define SPECTRA_IDENTIFIER   "Spectra"
 #define LITEX_IDENTIFIER     "LiteX-M2SDR"
 
@@ -98,7 +96,7 @@ std::vector<SoapySDR::Kwargs> findSpectra(
         auto dev_args = createDeviceKwargs(dev, path);
         m2sdr_close(dev);
 
-        /* Match our Spectra ident OR upstream LiteX-M2SDR ident */
+        /* Match Spectra or LiteX-M2SDR ident */
         const auto &ident = dev_args["identification"];
         if (ident.find(SPECTRA_IDENTIFIER) != std::string::npos ||
             ident.find(LITEX_IDENTIFIER) != std::string::npos) {

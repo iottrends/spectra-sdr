@@ -1,6 +1,6 @@
 #!/bin/bash
 # Spectra SDR — dependency setup
-# Clones the upstream LiteX M2SDR reference design used during development.
+# Fetches LiteX M2SDR libraries required for the SoapySDR plugin build.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

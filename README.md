@@ -21,7 +21,7 @@ See the full **[Quick Start Guide](docs/quickstart.md)** for detailed instructio
 git clone https://github.com/iottrends/spectra-sdr.git
 cd spectra-sdr
 pip install -r requirements.txt
-make deps            # clone upstream litex_m2sdr reference
+make deps            # fetch build dependencies
 
 make build           # synthesize bitstream (requires Vivado)
 make load            # load via JTAG
@@ -48,7 +48,7 @@ SoapySDRUtil --find   # should show "Spectra SDR"
 | `scripts/ad9364_init.py` | Minimal AD9364 init — BBPLL, LO, gain, enables IQ streaming |
 | `software/kernel/` | Linux kernel module (PCIe DMA driver) |
 | `software/soapysdr/` | SoapySDR plugin — enables GQRX, SDRangel, GNU Radio |
-| `setup_deps.sh` | Clones upstream litex_m2sdr reference repo |
+| `setup_deps.sh` | Fetches build dependencies |
 
 ## Architecture
 
@@ -74,9 +74,9 @@ Three clock domains: `sys` (125 MHz), `rfic` (245.76 MHz from AD9364 DATA_CLK), 
 | [v2 Design Reference](docs/spectra_v2_design.md) | SoC architecture, module reference, register maps |
 | [Clocking & AD9364 Init](docs/clocking_and_ad9364_init.md) | Clock tree, BBPLL config, bring-up sequence |
 | [Developer Experience Strategy](docs/developer_experience_strategy.md) | SDK roadmap and API design |
-| [Pin Map Reference](docs/litex_m2sdr_pinmap_reference.md) | LiteX-M2SDR upstream pin comparison |
+| [Pin Map Reference](docs/litex_m2sdr_pinmap_reference.md) | LiteX-M2SDR pin comparison |
 | [Resource Utilization](resource_utilization.md) | FPGA resource usage vs reference designs |
 
 ## License
 
-BSD-2-Clause. Based on [litex_m2sdr](https://github.com/enjoy-digital/litex_m2sdr) by Enjoy-Digital.
+BSD-2-Clause

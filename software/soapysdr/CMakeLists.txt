@@ -1,6 +1,5 @@
 ########################################################################
 ## SoapySDR plugin for Spectra SDR
-## Adapted from enjoy-digital/litex_m2sdr SoapySDR plugin
 ########################################################################
 cmake_minimum_required(VERSION 3.10)
 project(SoapySpectra CXX C)
@@ -9,7 +8,7 @@ set(CMAKE_CXX_STANDARD 14)
 
 find_package(SoapySDR CONFIG REQUIRED)
 
-# Paths to upstream litex_m2sdr source (cloned by setup_deps.sh)
+# LiteX M2SDR shared libraries (cloned by setup_deps.sh)
 set(UPSTREAM_SW ${CMAKE_SOURCE_DIR}/../../litex_m2sdr/litex_m2sdr/software)
 set(UPSTREAM_USER ${UPSTREAM_SW}/user)
 
@@ -19,7 +18,7 @@ set(BUILD_SW ${CMAKE_SOURCE_DIR}/../../build/spectra_platform/software)
 # Check that dependencies exist
 if(NOT EXISTS "${UPSTREAM_USER}/liblitepcie/litepcie_dma.c")
     message(FATAL_ERROR
-        "Cannot find litex_m2sdr source. Run ./setup_deps.sh from repo root.")
+        "Cannot find LiteX M2SDR libraries. Run ./setup_deps.sh from repo root.")
 endif()
 
 if(NOT EXISTS "${BUILD_SW}/include/generated/csr.h")
@@ -40,12 +39,12 @@ include_directories(
     ${UPSTREAM_USER}/libliteeth         # etherbone.h
 )
 
-# Sources: our registration file + upstream device/streaming/libraries
+# Sources
 set(SOURCES
-    # Our adapted registration (device name, paths)
+    # Device registration
     SpectraRegistration.cpp
 
-    # Upstream SoapySDR plugin (used as-is)
+    # SoapySDR plugin core
     ${UPSTREAM_SW}/soapysdr/LiteXM2SDRDevice.cpp
     ${UPSTREAM_SW}/soapysdr/LiteXM2SDRStreaming.cpp
 

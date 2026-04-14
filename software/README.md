@@ -82,13 +82,8 @@ gqrx
 # Click play
 ```
 
-## Upstream dependencies
+## Dependencies
 
-This software stack is adapted from [enjoy-digital/litex_m2sdr](https://github.com/enjoy-digital/litex_m2sdr).
-The core LitePCIe DMA engine, AD9361 driver, and SoapySDR plugin architecture
-are from that project, modified for the Spectra SDR hardware:
-
-- Different FPGA (XC7A50T vs XC7A200T) → different CSR addresses
-- Fixed 40 MHz TCXO (no SI5351 programmable clock)
-- USB 2.0 HS as alternate transport (not yet in SoapySDR plugin)
-- Device name: `/dev/spectra0` instead of `/dev/m2sdr0`
+The SoapySDR plugin builds against the LiteX LitePCIe userspace library and
+the Analog Devices AD9361 no-OS driver. These are pulled in automatically
+via `setup_deps.sh` and referenced by the CMake build.

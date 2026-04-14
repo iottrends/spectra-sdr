@@ -1,5 +1,4 @@
 # Spectra SDR — Linux kernel module
-# Adapted from enjoy-digital/litex_m2sdr
 #
 # The LiteX build generates kernel source + CSR headers in:
 #   build/spectra_platform/software/kernel/

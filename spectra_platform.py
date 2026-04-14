@@ -2,7 +2,6 @@
 # This file is part of Spectra SDR.
 #
 # Copyright (c) 2026 Hallycon Ventures
-# Based on LiteX-M2SDR platform by Enjoy-Digital <enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Board: Spectra SDR (M.2 2280)
