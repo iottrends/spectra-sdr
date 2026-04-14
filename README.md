@@ -22,9 +22,9 @@ A compact M.2 2280 Software Defined Radio.
 
 Your Spectra SDR board comes **pre-flashed** with the v2 bitstream
 (`spectra_platform.bit`) that supports both **PCIe and USB** interfaces.
-The PCIe path is fully supported with SoapySDR today. The USB path works
-at the FPGA level (IQ data streams over USB 2.0 bulk endpoints) but
-host-side USB streaming software is still in development — use PCIe for now.
+Both paths are fully supported through SoapySDR — the plugin auto-detects
+which interface is available. PCIe Gen2 x2 gives full 61.44 MSPS throughput,
+USB 2.0 HS gives ~5 MSPS (sufficient for FM, ADS-B, and narrowband work).
 
 If you ever need to re-flash or update the bitstream, download the latest
 `spectra_platform.bit` from
