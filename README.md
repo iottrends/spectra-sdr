@@ -18,6 +18,135 @@ A compact M.2 2280 Software Defined Radio.
 
 ---
 
+## The story behind Spectra
+
+This project started with a simple problem: **I needed a 10 Mbps data link
+for a UAV, over 1 km, and nothing off the shelf worked.**
+
+I started where most people start — looking for a single chip that could
+solve it. The NRF24L01 tops out at 2 Mbps. TI's CC1200 and CC2652 are
+great for IoT but nowhere near 10 Mbps range. SX1280 gives you LoRa at
+long range, but the throughput isn't there. Every chip I found was either
+fast-but-short-range or long-range-but-slow.
+
+So I looked at what the industry actually uses on drones. Herelink — 
+proprietary, expensive, locked down. Doodle Labs — military-grade mesh
+radios, way out of hobbyist budget. Then I found the open-source side:
+OpenHD, OpenIPC — clever projects, but when you dig into their RF layer,
+most of them are running hacked Wi-Fi chipsets with privileged register
+access, operating outside their intended bands. Fragile, legally grey,
+and fundamentally limited by what the Wi-Fi firmware allows.
+
+That sent me down a different rabbit hole. I started reading about OFDM
+waveform design, studied the PlutoSDR and Analog Devices' ADALM-PLUTO
+implementation, went through the Charon SDR architecture, and found
+research papers from projects like Neptune and TruFlight on custom UAV
+data links. The conclusion was clear: **if you want a reliable, high-
+throughput wireless link with custom waveforms, you need an SDR.** Not
+a Wi-Fi chip. Not a LoRa module. A real software-defined radio with an
+FPGA and a wideband transceiver.
+
+### The problem with existing SDRs
+
+Once I knew I needed an SDR, I tried to fit one into a UAV stack. It
+didn't go well.
+
+**PlutoSDR** — great for learning, but USB-only, limited bandwidth, and
+the Zynq 7010 doesn't leave much room for custom DSP after the AD9361
+driver takes its share.
+
+**USRP B210** — fantastic radio, but it's the size of a paperback book,
+draws 6W, and costs \$1,500. Not something you strap to a 250mm quad.
+
+**LimeSDR Mini** — closer, but the LMS7002M has different trade-offs
+than the AD936x family, and the USB 3.0 interface was flaky in my tests.
+
+**BladeRF** — solid board, but again, too large, and I wanted PCIe.
+
+Every board I looked at had the same problem: **they were designed as
+bench-top development tools, not as embedded subsystems.** I didn't
+need BNC connectors, metal enclosures, and bench power supplies. I needed
+something that fits inside a UAV frame, draws minimal power, and connects
+directly to a companion computer over PCIe.
+
+And then there was the PCB design problem. I'm not an RF engineer. I
+didn't want to route a 6-layer board with impedance-controlled LVDS
+pairs and a Zynq BGA from scratch. I needed a simpler path.
+
+### The M.2 idea
+
+The breakthrough was realizing that the M.2 form factor solves almost
+every problem at once:
+
+- **22 x 80 mm** — fits inside any drone, any embedded system, any laptop
+- **PCIe built in** — Gen2 x2 gives 8 Gbps, enough for full-rate 2x2 MIMO
+- **Power from the slot** — 3.3V from the connector, no external supply
+- **Available everywhere** — every Raspberry Pi CM4 carrier board, every
+  laptop, every mini-ITX motherboard has an M.2 slot
+
+Pair that with the AD9364 (same transceiver as the PlutoSDR and USRP,
+70 MHz to 6 GHz, 56 MHz bandwidth, full duplex) on an Artix-7 FPGA,
+and you have a serious SDR in the footprint of an NVMe drive.
+
+### Design philosophy
+
+**Small FPGA, on purpose.** The Artix-7 50T has 32,600 LUTs. That's
+enough for PCIe DMA, USB streaming, the AD9364 LVDS PHY, 8 MB HyperRAM,
+and still leaves 75% of the fabric free for custom DSP — OFDM modulators,
+FEC encoders, whatever your application needs. A bigger FPGA means more
+cost, more power, and more heat. For a UAV, watts matter. Future variants
+(Spectra 100T, Spectra 200T) will scale up the FPGA while keeping the
+same pinout, software, and ecosystem.
+
+**Dual interface: PCIe + USB.** Not everyone has an M.2 PCIe slot
+available. USB 2.0 HS gives you ~5 MSPS — enough for FM, ADS-B, LoRa,
+and narrowband telemetry. PCIe gives you the full 61.44 MSPS. The
+SoapySDR plugin auto-detects which is available. Same board, same
+bitstream, works everywhere.
+
+**No CPU on the FPGA.** The SoC is CPU-less by design. The host PC (or
+Raspberry Pi, or Jetson) is the CPU. The FPGA does what FPGAs do best:
+move samples. AD9364 configuration, gain control, and frequency tuning
+all happen over the host-side CSR bridge. This keeps the gateware simple,
+deterministic, and easy to modify.
+
+**Fully open gateware.** The entire FPGA design is written in Python
+using LiteX and Migen. No encrypted IP cores, no vendor lock-in, no
+black boxes. The USB stack is built with LUNA/Amaranth. You can read
+every register, trace every signal, and modify anything. If you want to
+put an OFDM modem on the FPGA, you have the source code for everything
+it's connected to.
+
+### Who this is for
+
+- **UAV developers** who need a compact, high-throughput data link
+- **Researchers** who want a wideband transceiver they can carry in a backpack
+- **Embedded developers** building wireless products on ISM, LTE, or 5G NR bands
+- **Students** learning RF, DSP, and FPGA design with real hardware
+- **Ham radio operators** who want 70 MHz to 6 GHz in one card
+- Anyone who has ever thought "I just want to plug an SDR into my laptop"
+
+### Where this is going
+
+Spectra is not just a board — it is a platform. The hardware and gateware
+are here. SoapySDR integration works today with GQRX, SDRangel, CubicSDR,
+and GNU Radio. The next step is a Python SDK with ESP32-level simplicity:
+
+```python
+from spectra import SDR
+
+sdr = SDR()                   # auto-detect PCIe or USB
+sdr.rx.freq = 100e6           # tune to FM band
+sdr.rx.gain = 40              # dB
+samples = sdr.rx.read(1024)   # get IQ samples
+```
+
+And beyond that — a complete OFDM transceiver in the FPGA fabric, so you
+can fly a drone with a custom waveform running on a card the size of a
+stick of gum. That's the goal. That's why this exists.
+
+---
+
 ## Getting started
 
 Your Spectra SDR board comes **pre-flashed** with the v2 bitstream
