@@ -82,7 +82,7 @@ sudo python3 validate_sdr.py
 
 | Step | What it checks |
 |------|---------------|
-| 1 | PCIe device `/dev/spectra0` exists |
+| 1 | Interface detection -- PCIe bus (lspci), driver (/dev/spectra0), USB (lsusb VID:1209 PID:5380) |
 | 2 | SoC identification string (confirms bitstream) |
 | 3 | FPGA temperature and supply voltages (XADC) |
 | 4 | FPGA unique serial number (DNA) |

@@ -16,6 +16,7 @@ Requirements:
   pip install litex
 
 The bitstream ships a LiteX CSR bridge. The script checks:
+  - PCIe and USB interface detection (lspci, device node, lsusb)
   - SoC identification string (confirms bitstream is loaded)
   - FPGA temperature and supply voltages (XADC)
   - Unique device DNA serial number
@@ -24,7 +25,6 @@ The bitstream ships a LiteX CSR bridge. The script checks:
   - AD9364 revision and key register readback
   - LED toggle (visual confirmation)
   - PCIe DMA status (PCIe transport only)
-  - USB PHY detection (checks USB3320 ULPI device is visible on host)
 """
 
 import os
@@ -33,6 +33,7 @@ import time
 import struct
 import random
 import argparse
+import subprocess
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Colour helpers
@@ -89,9 +90,53 @@ def _spi_write(bus, addr, data):
 
 def check_pcie_device():
     """Check that the PCIe device node exists (driver loaded)."""
-    node = "/dev/litepcie0"
-    exists = os.path.exists(node)
-    return exists, node
+    for node in ["/dev/spectra0", "/dev/litepcie0"]:
+        if os.path.exists(node):
+            return True, node
+    return False, None
+
+
+def detect_pcie_bus():
+    """Check if the Spectra SDR is visible on the PCIe bus via lspci."""
+    try:
+        out = subprocess.check_output(["lspci", "-nn"], text=True, stderr=subprocess.DEVNULL)
+        for line in out.splitlines():
+            if "7050" in line.lower() or "xilinx" in line.lower():
+                return True, line.strip()
+        return False, None
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None, None  # lspci not available
+
+
+def detect_usb_device():
+    """Check if the Spectra SDR USB device (VID:1209 PID:5380) is on the bus."""
+    # Try lsusb first (no python deps)
+    try:
+        out = subprocess.check_output(["lsusb"], text=True, stderr=subprocess.DEVNULL)
+        for line in out.splitlines():
+            if "1209:5380" in line:
+                return True, line.strip()
+        return False, None
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    # Fallback to pyusb
+    try:
+        import usb.core
+        import usb.util
+        dev = usb.core.find(idVendor=0x1209, idProduct=0x5380)
+        if dev is None:
+            return False, None
+        serial = ""
+        try:
+            serial = usb.util.get_string(dev, dev.iSerialNumber) if dev.iSerialNumber else ""
+        except Exception:
+            pass
+        info = f"Bus {dev.bus:03d} Device {dev.address:03d}: ID 1209:5380 Spectra SDR"
+        if serial:
+            info += f" (serial: {serial})"
+        return True, info
+    except ImportError:
+        return None, None  # neither lsusb nor pyusb
 
 
 def test_xadc(bus):
@@ -269,31 +314,6 @@ def test_led_toggle(bus):
         return False, str(e)
 
 
-def test_usb_device():
-    """Check if the Spectra SDR USB device (VID:1209 PID:5380) is visible on the host."""
-    USB_VID = 0x1209
-    USB_PID = 0x5380
-    try:
-        import usb.core
-        dev = usb.core.find(idVendor=USB_VID, idProduct=USB_PID)
-        if dev is None:
-            return False, {"found": False, "reason": "not detected on USB bus"}
-        serial = ""
-        try:
-            import usb.util
-            serial = usb.util.get_string(dev, dev.iSerialNumber) if dev.iSerialNumber else ""
-        except Exception:
-            pass
-        return True, {
-            "found": True,
-            "bus": dev.bus,
-            "address": dev.address,
-            "serial": serial,
-        }
-    except ImportError:
-        return None, {"found": None, "reason": "pyusb not installed (pip install pyusb)"}
-
-
 def test_pcie_dma_idle(bus):
     """Confirm DMA engine is present and idle (no stray enables)."""
     writer_en = bus.regs.pcie_dma0_writer_enable.read()
@@ -373,18 +393,51 @@ def main():
 
     failures = []
 
-    # ── Step 1: PCIe device node (PCIe transport only) ─────────────────────
-    if args.transport == "pcie":
-        print(BOLD("Step 1 — PCIe enumeration"))
-        ok, node = check_pcie_device()
-        result_line("/dev/litepcie0 present", ok, node if ok else "not found — load the litepcie driver")
-        if not ok:
-            failures.append("PCIe device node missing")
-        print()
+    # ── Step 1: Interface detection (PCIe + USB) ───────────────────────────
+    print(BOLD("Step 1 — Interface detection"))
+
+    # PCIe bus check
+    pcie_bus_ok, pcie_bus_info = detect_pcie_bus()
+    if pcie_bus_ok:
+        result_line("PCIe bus", True, pcie_bus_info)
+    elif pcie_bus_ok is None:
+        print(f"  [----]  PCIe bus  (lspci not available)")
     else:
-        print(BOLD("Step 1 — PCIe enumeration"))
-        print(f"  [----]  Skipped (transport=jtag)")
-        print()
+        result_line("PCIe bus", False, "Xilinx device not found on PCIe bus")
+
+    # PCIe device node check
+    if args.transport == "pcie":
+        pcie_dev_ok, pcie_dev_node = check_pcie_device()
+        if pcie_dev_ok:
+            result_line("PCIe driver", True, pcie_dev_node)
+        else:
+            result_line("PCIe driver", False, "no /dev/spectra0 — load kernel module")
+            failures.append("PCIe device node missing")
+    else:
+        print(f"  [----]  PCIe driver  (skipped, transport=jtag)")
+
+    # USB device check
+    usb_ok, usb_info = detect_usb_device()
+    if usb_ok:
+        result_line("USB device", True, usb_info)
+    elif usb_ok is None:
+        print(f"  [----]  USB device  (lsusb/pyusb not available)")
+    else:
+        print(f"  [ -- ]  USB device  not detected (optional if using PCIe)")
+
+    # Summary line
+    has_pcie = pcie_bus_ok is True
+    has_usb = usb_ok is True
+    if has_pcie and has_usb:
+        print(f"\n  {PASS('>>>')} Both PCIe and USB detected — PCIe will be used (Gen2 x2, ~8 Gbps)")
+    elif has_pcie:
+        print(f"\n  {PASS('>>>')} PCIe detected (Gen2 x2, ~8 Gbps)")
+    elif has_usb:
+        print(f"\n  {PASS('>>>')} USB detected (HS, ~480 Mbps)")
+    else:
+        if args.transport != "jtag":
+            print(f"\n  {WARN('>>>')} No PCIe or USB detected — check board seating")
+    print()
 
     # ── Connect RemoteClient ───────────────────────────────────────────────
     print(BOLD("Connecting to LiteX CSR bridge …"))
@@ -551,23 +604,6 @@ def main():
         print()
 
     bus.close()
-
-    # ── Step 11: USB device detection ─────────────────────────────────────
-    print(BOLD("Step 11 — USB device (VID:1209 PID:5380)"))
-    ok, usb_info = test_usb_device()
-    if ok is None:
-        print(f"  [----]  Skipped ({usb_info['reason']})")
-    elif ok:
-        detail = f"bus {usb_info['bus']} addr {usb_info['address']}"
-        if usb_info.get("serial"):
-            detail += f", serial {usb_info['serial']}"
-        result_line("USB device detected", True, detail)
-    else:
-        result_line("USB device detected", False, usb_info.get("reason", "not found"))
-        # USB is optional — don't add to failures, just warn
-        print(f"           {WARN('NOTE')}  USB is optional if using PCIe. "
-              "Check USB cable if you expect USB connectivity.")
-    print()
 
     # ── Summary ────────────────────────────────────────────────────────────
     print(HEAD("══════════════════════════════════════════════════════"))
