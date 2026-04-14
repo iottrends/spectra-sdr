@@ -111,7 +111,7 @@ This step enables all standard SDR applications.
 
 ```bash
 # Prerequisites
-sudo apt install cmake libsoapysdr-dev soapysdr-tools
+sudo apt install cmake libsoapysdr-dev soapysdr-tools libusb-1.0-0-dev
 
 # Build and install
 make soapysdr-install

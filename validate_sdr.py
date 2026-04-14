@@ -24,6 +24,7 @@ The bitstream ships a LiteX CSR bridge. The script checks:
   - AD9364 revision and key register readback
   - LED toggle (visual confirmation)
   - PCIe DMA status (PCIe transport only)
+  - USB PHY detection (checks USB3320 ULPI device is visible on host)
 """
 
 import os
@@ -266,6 +267,31 @@ def test_led_toggle(bus):
         return True, "LEDs toggled (check board visually)"
     except Exception as e:
         return False, str(e)
+
+
+def test_usb_device():
+    """Check if the Spectra SDR USB device (VID:1209 PID:5380) is visible on the host."""
+    USB_VID = 0x1209
+    USB_PID = 0x5380
+    try:
+        import usb.core
+        dev = usb.core.find(idVendor=USB_VID, idProduct=USB_PID)
+        if dev is None:
+            return False, {"found": False, "reason": "not detected on USB bus"}
+        serial = ""
+        try:
+            import usb.util
+            serial = usb.util.get_string(dev, dev.iSerialNumber) if dev.iSerialNumber else ""
+        except Exception:
+            pass
+        return True, {
+            "found": True,
+            "bus": dev.bus,
+            "address": dev.address,
+            "serial": serial,
+        }
+    except ImportError:
+        return None, {"found": None, "reason": "pyusb not installed (pip install pyusb)"}
 
 
 def test_pcie_dma_idle(bus):
@@ -525,6 +551,23 @@ def main():
         print()
 
     bus.close()
+
+    # ── Step 11: USB device detection ─────────────────────────────────────
+    print(BOLD("Step 11 — USB device (VID:1209 PID:5380)"))
+    ok, usb_info = test_usb_device()
+    if ok is None:
+        print(f"  [----]  Skipped ({usb_info['reason']})")
+    elif ok:
+        detail = f"bus {usb_info['bus']} addr {usb_info['address']}"
+        if usb_info.get("serial"):
+            detail += f", serial {usb_info['serial']}"
+        result_line("USB device detected", True, detail)
+    else:
+        result_line("USB device detected", False, usb_info.get("reason", "not found"))
+        # USB is optional — don't add to failures, just warn
+        print(f"           {WARN('NOTE')}  USB is optional if using PCIe. "
+              "Check USB cable if you expect USB connectivity.")
+    print()
 
     # ── Summary ────────────────────────────────────────────────────────────
     print(HEAD("══════════════════════════════════════════════════════"))

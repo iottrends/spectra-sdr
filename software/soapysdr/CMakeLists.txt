@@ -7,6 +7,8 @@ project(SoapySpectra CXX C)
 set(CMAKE_CXX_STANDARD 14)
 
 find_package(SoapySDR CONFIG REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
 
 # LiteX M2SDR shared libraries (cloned by setup_deps.sh)
 set(UPSTREAM_SW ${CMAKE_SOURCE_DIR}/../../litex_m2sdr/litex_m2sdr/software)
@@ -31,6 +33,7 @@ add_definitions(-DUSE_LITEPCIE=1)
 
 include_directories(
     ${CMAKE_SOURCE_DIR}
+    ${LIBUSB_INCLUDE_DIRS}
     ${BUILD_SW}/include/generated       # csr.h, soc.h, mem.h
     ${BUILD_SW}/kernel                  # litepcie.h, config.h
     ${UPSTREAM_USER}/liblitepcie        # litepcie_dma.h, litepcie_helpers.h
@@ -73,3 +76,4 @@ SOAPY_SDR_MODULE_UTIL(
     TARGET SoapySpectra
     SOURCES ${SOURCES}
 )
+target_link_libraries(SoapySpectra PRIVATE ${LIBUSB_LIBRARIES})

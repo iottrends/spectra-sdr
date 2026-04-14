@@ -24,7 +24,7 @@ SDR Applications (GQRX, SDRangel, GNU Radio)
 
 ```bash
 sudo apt install build-essential linux-headers-$(uname -r) \
-    cmake libsoapysdr-dev soapysdr-tools
+    cmake libsoapysdr-dev soapysdr-tools libusb-1.0-0-dev
 ```
 
 ## Build order
