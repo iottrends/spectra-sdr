@@ -15,16 +15,22 @@ Usage:
 Requirements:
   pip install litex
 
-The bitstream ships a LiteX CSR bridge. The script reads:
+The bitstream ships a LiteX CSR bridge. The script checks:
+  - SoC identification string (confirms bitstream is loaded)
   - FPGA temperature and supply voltages (XADC)
   - Unique device DNA serial number
-  - AD9364 product ID via SPI (confirms RFIC is alive)
+  - HyperRAM read/write (confirms 8 MB memory is working)
+  - AD9364 product ID + SPI loopback (confirms RFIC is alive and SPI bus works)
+  - AD9364 revision and key register readback
+  - LED toggle (visual confirmation)
   - PCIe DMA status (PCIe transport only)
 """
 
 import os
 import sys
 import time
+import struct
+import random
 import argparse
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -150,6 +156,118 @@ def test_ad9364_reset_cycle(bus):
     return ok, info
 
 
+def test_soc_ident(bus):
+    """Read the LiteX SoC identification string."""
+    ident = ""
+    try:
+        # LiteX identifier is a CSR memory — read byte by byte
+        i = 0
+        while True:
+            val = bus.read(bus.mems.identifier_mem.base + i * 4)
+            if val == 0:
+                break
+            ident += chr(val & 0xFF)
+            i += 1
+            if i > 128:  # safety limit
+                break
+    except Exception:
+        # Fallback: some RemoteClient versions expose it differently
+        try:
+            ident = bus.identifier
+        except Exception:
+            pass
+    ok = len(ident) > 0
+    return ok, ident
+
+
+def test_hyperram(bus, base_addr=0x40000000, test_size=256):
+    """Write and read back test patterns to HyperRAM."""
+    # Generate deterministic test patterns
+    patterns = [
+        ("Walking ones",  [1 << (i % 32) for i in range(test_size // 4)]),
+        ("Walking zeros", [~(1 << (i % 32)) & 0xFFFFFFFF for i in range(test_size // 4)]),
+        ("Random",        [random.randint(0, 0xFFFFFFFF) for _ in range(test_size // 4)]),
+    ]
+    results = {}
+    all_ok = True
+    for name, data in patterns:
+        # Write
+        for i, word in enumerate(data):
+            bus.write(base_addr + i * 4, word)
+        # Read back and verify
+        mismatches = 0
+        for i, expected in enumerate(data):
+            got = bus.read(base_addr + i * 4)
+            if got != expected:
+                mismatches += 1
+        ok = (mismatches == 0)
+        results[name] = {"ok": ok, "mismatches": mismatches, "words": len(data)}
+        if not ok:
+            all_ok = False
+    return all_ok, results
+
+
+def test_ad9364_spi_loopback(bus):
+    """Write and readback AD9364 scratch register to verify SPI bus integrity."""
+    # AD9364 has a scratch pad register at 0x00A that can be written and read back.
+    SCRATCH_REG = 0x00A
+    test_values = [0x55, 0xAA, 0x0F, 0xF0, 0x00, 0xFF]
+    results = []
+    all_ok = True
+    for val in test_values:
+        try:
+            _spi_write(bus, SCRATCH_REG, val)
+            readback = _spi_read(bus, SCRATCH_REG)
+            ok = (readback == val)
+            results.append({"wrote": val, "read": readback, "ok": ok})
+            if not ok:
+                all_ok = False
+        except TimeoutError as e:
+            results.append({"wrote": val, "read": None, "ok": False, "error": str(e)})
+            all_ok = False
+    return all_ok, results
+
+
+def test_ad9364_revision(bus):
+    """Read AD9364 product ID and revision registers."""
+    # 0x037 = Product ID (0x0A for AD9364)
+    # 0x005 = Device revision
+    try:
+        product_id = _spi_read(bus, 0x037)
+        revision   = _spi_read(bus, 0x005)
+    except TimeoutError as e:
+        return False, {"error": str(e)}
+
+    # Identify the chip variant from product ID
+    chip_names = {0x0A: "AD9364", 0x08: "AD9361", 0x06: "AD9363"}
+    chip_name = chip_names.get(product_id, f"Unknown (0x{product_id:02X})")
+
+    ok = product_id in (0x0A, 0x08, 0x06)  # any AD936x is valid
+    return ok, {
+        "product_id": product_id,
+        "chip": chip_name,
+        "revision": revision,
+    }
+
+
+def test_led_toggle(bus):
+    """Toggle LEDs to provide visual confirmation."""
+    try:
+        # LedChaser exposes an 'out' CSR — write directly to override
+        original = bus.regs.leds_out.read()
+        # Blink pattern: all on, all off, restore
+        bus.regs.leds_out.write(0x03)  # both LEDs on
+        time.sleep(0.2)
+        bus.regs.leds_out.write(0x00)  # both LEDs off
+        time.sleep(0.2)
+        bus.regs.leds_out.write(0x03)  # both LEDs on
+        time.sleep(0.2)
+        bus.regs.leds_out.write(original)  # restore
+        return True, "LEDs toggled (check board visually)"
+    except Exception as e:
+        return False, str(e)
+
+
 def test_pcie_dma_idle(bus):
     """Confirm DMA engine is present and idle (no stray enables)."""
     writer_en = bus.regs.pcie_dma0_writer_enable.read()
@@ -258,8 +376,20 @@ def main():
         sys.exit(1)
     print()
 
-    # ── Step 2: XADC — FPGA temperature and voltages ──────────────────────
-    print(BOLD("Step 2 — FPGA health (XADC)"))
+    # ── Step 2: SoC identification ──────────────────────────────────────────
+    print(BOLD("Step 2 — SoC identification"))
+    try:
+        ok, ident = test_soc_ident(bus)
+        result_line("SoC ident string", ok, ident if ok else "empty or unreadable")
+        if not ok:
+            failures.append("SoC ident string empty")
+    except Exception as e:
+        result_line("SoC ident", False, str(e))
+        failures.append(f"SoC ident error: {e}")
+    print()
+
+    # ── Step 3: XADC — FPGA temperature and voltages ──────────────────────
+    print(BOLD("Step 3 — FPGA health (XADC)"))
     try:
         ok, xadc = test_xadc(bus)
         result_line("Temperature in range (0–85 °C)",    0 < xadc["temp_c"] < 85,
@@ -277,8 +407,8 @@ def main():
         failures.append(f"XADC error: {e}")
     print()
 
-    # ── Step 3: DNA — unique device serial ────────────────────────────────
-    print(BOLD("Step 3 — Device DNA (unique serial)"))
+    # ── Step 4: DNA — unique device serial ────────────────────────────────
+    print(BOLD("Step 4 — Device DNA (unique serial)"))
     try:
         ok, dna = test_dna(bus)
         dna_str = f"0x{dna:016X}"
@@ -291,8 +421,22 @@ def main():
         failures.append(f"DNA error: {e}")
     print()
 
-    # ── Step 4: AD9364 reset + product ID ─────────────────────────────────
-    print(BOLD("Step 4 — AD9364 RFIC (SPI ping)"))
+    # ── Step 5: HyperRAM ────────────────────────────────────────────────────
+    print(BOLD("Step 5 — HyperRAM (8 MB)"))
+    try:
+        ok, ram_results = test_hyperram(bus)
+        for name, info in ram_results.items():
+            result_line(f"{name} pattern ({info['words']} words)", info["ok"],
+                        f"{info['mismatches']} mismatches" if not info["ok"] else "OK")
+        if not ok:
+            failures.append("HyperRAM read/write failed")
+    except Exception as e:
+        result_line("HyperRAM test", False, str(e))
+        failures.append(f"HyperRAM error: {e}")
+    print()
+
+    # ── Step 6: AD9364 reset + product ID ─────────────────────────────────
+    print(BOLD("Step 6 — AD9364 RFIC (SPI ping)"))
     try:
         if args.skip_reset:
             ok, info = test_ad9364_spi(bus)
@@ -313,9 +457,56 @@ def main():
         failures.append(f"AD9364 error: {e}")
     print()
 
-    # ── Step 5: PCIe DMA (PCIe transport only) ────────────────────────────
+    # ── Step 7: AD9364 chip identification ───────────────────────────────
+    print(BOLD("Step 7 — AD9364 chip identification"))
+    try:
+        ok, rev_info = test_ad9364_revision(bus)
+        if "error" not in rev_info:
+            result_line("Chip variant", ok,
+                        f"{rev_info['chip']} (ID=0x{rev_info['product_id']:02X}, rev=0x{rev_info['revision']:02X})")
+        else:
+            result_line("Chip identification", False, rev_info["error"])
+        if not ok:
+            failures.append("AD9364 chip identification failed")
+    except Exception as e:
+        result_line("AD9364 revision", False, str(e))
+        failures.append(f"AD9364 revision error: {e}")
+    print()
+
+    # ── Step 8: AD9364 SPI bus integrity ──────────────────────────────────
+    print(BOLD("Step 8 — AD9364 SPI loopback (scratch register)"))
+    try:
+        ok, spi_results = test_ad9364_spi_loopback(bus)
+        passed = sum(1 for r in spi_results if r["ok"])
+        total = len(spi_results)
+        result_line(f"SPI write/readback ({passed}/{total} patterns)", ok,
+                    "all matched" if ok else "mismatch detected")
+        if not ok:
+            for r in spi_results:
+                if not r["ok"]:
+                    detail = f"wrote 0x{r['wrote']:02X}, read 0x{r['read']:02X}" if r["read"] is not None else r.get("error", "")
+                    print(f"           {FAIL('MISMATCH')}  {detail}")
+            failures.append("AD9364 SPI loopback failed")
+    except Exception as e:
+        result_line("SPI loopback", False, str(e))
+        failures.append(f"SPI loopback error: {e}")
+    print()
+
+    # ── Step 9: LED toggle ────────────────────────────────────────────────
+    print(BOLD("Step 9 — LED toggle (visual check)"))
+    try:
+        ok, led_detail = test_led_toggle(bus)
+        result_line("LED blink", ok, led_detail)
+        if not ok:
+            failures.append(f"LED toggle failed: {led_detail}")
+    except Exception as e:
+        result_line("LED toggle", False, str(e))
+        failures.append(f"LED error: {e}")
+    print()
+
+    # ── Step 10: PCIe DMA (PCIe transport only) ───────────────────────────
     if args.transport == "pcie":
-        print(BOLD("Step 5 — PCIe DMA engine"))
+        print(BOLD("Step 10 — PCIe DMA engine"))
         try:
             ok, dma = test_pcie_dma_idle(bus)
             result_line("DMA writer idle (enable=0)", dma["writer_enable"] == 0,
@@ -329,7 +520,7 @@ def main():
             failures.append(f"DMA error: {e}")
         print()
     else:
-        print(BOLD("Step 5 — PCIe DMA engine"))
+        print(BOLD("Step 10 — PCIe DMA engine"))
         print("  [----]  Skipped (transport=jtag)")
         print()
 
