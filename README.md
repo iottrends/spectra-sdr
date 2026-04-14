@@ -14,21 +14,33 @@ A compact M.2 2280 Software Defined Radio.
 | **Host interfaces** | PCIe Gen2 x2, USB 2.0 High-Speed (USB3320 ULPI) |
 | **Memory** | 8 MB HyperRAM, 16 MB QSPI Flash |
 | **Clock** | 40 MHz TCXO (2.5 ppm) |
-| **Form factor** | M.2 2280 (Key M) |
+| **Form factor** | M.2 2280 (Key B+M) |
 
 ---
 
 ## Getting started
 
-Your Spectra SDR board comes **pre-flashed** with a bitstream that supports
-PCIe IQ streaming out of the box. If you ever need to re-flash or update the
-bitstream, grab the latest `.bit` file from
-[GitHub Releases](https://github.com/iottrends/spectra-sdr/releases).
+Your Spectra SDR board comes **pre-flashed** with the v2 bitstream
+(`spectra_platform.bit`) that supports both **PCIe and USB** interfaces.
+The PCIe path is fully supported with SoapySDR today. The USB path works
+at the FPGA level (IQ data streams over USB 2.0 bulk endpoints) but
+host-side USB streaming software is still in development — use PCIe for now.
+
+If you ever need to re-flash or update the bitstream, download the latest
+`spectra_platform.bit` from
+[GitHub Releases](https://github.com/iottrends/spectra-sdr/releases)
+and flash it via JTAG:
+
+```bash
+openFPGALoader -c digilent_hs2 spectra_platform.bit        # volatile (lost on reboot)
+openFPGALoader -c digilent_hs2 --write-flash spectra_platform.bin  # persistent via QSPI
+```
 
 ### Step 1 -- Plug in the board
 
-Insert the Spectra SDR into any M.2 Key M slot (PCIe) on your Linux host and
-power on. The board should enumerate on the PCIe bus immediately.
+The Spectra SDR uses an M.2 B+M key, so it fits in both B-key and M-key
+slots. Insert it into any M.2 PCIe slot on your Linux host and power on.
+The board should enumerate on the PCIe bus immediately.
 
 Verify with `lspci`:
 
