@@ -1,0 +1,14 @@
+# Spectra SDR — Python dependencies
+# Install: pip install -r requirements.txt
+
+# LiteX ecosystem (gateware build)
+migen
+litex
+litepcie
+
+# USB device generation (only needed to regenerate usb_iq_device.v)
+# amaranth==0.4.5
+# luna==0.2.3
+
+# Validation / host tools
+# litex  (RemoteClient, already listed above)

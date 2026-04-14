@@ -15,22 +15,19 @@ Compact M.2 2280 Software Defined Radio built on LiteX.
 
 ## Quick start
 
+See the full **[Quick Start Guide](docs/quickstart.md)** for detailed instructions.
+
 ```bash
-# 1. Clone and set up dependencies
 git clone https://github.com/iottrends/spectra-sdr.git
 cd spectra-sdr
-./setup_deps.sh          # clones upstream litex_m2sdr reference
+pip install -r requirements.txt
 
-# 2. Install LiteX ecosystem (into a venv)
-python3 -m venv venv && source venv/bin/activate
-pip install migen litex litepcie
+make build          # synthesize bitstream (requires Vivado)
+make load           # load via JTAG
+make validate-jtag  # verify hardware
 
-# 3. Build bitstream (requires Vivado)
-python3 spectra_target_v2.py --build
-
-# 4. Load and validate
-python3 spectra_target_v2.py --load
-sudo python3 validate_sdr.py
+# Initialize AD9364 and start streaming
+python3 scripts/ad9364_init.py --transport jtag --rx-lo 100 --gain 40
 ```
 
 ## Project structure
@@ -42,7 +39,8 @@ sudo python3 validate_sdr.py
 | `spectra_target_v2.py` | v2 SoC target — adds USB 2.0 IQ streaming |
 | `usb_iq_device.py` | Amaranth/LUNA USB bulk device generator |
 | `usb_iq_device.v` | Generated Verilog (regenerate with `python3 usb_iq_device.py`) |
-| `validate_sdr.py` | Post-bitstream hardware validation (XADC, DNA, SPI, DMA) |
+| `validate_sdr.py` | Post-bitstream hardware validation (10-step test suite) |
+| `scripts/ad9364_init.py` | Minimal AD9364 init — BBPLL, LO, gain, enables IQ streaming |
 | `setup_deps.sh` | Clones upstream litex_m2sdr reference repo |
 
 ## Architecture
@@ -65,9 +63,9 @@ Three clock domains: `sys` (125 MHz), `rfic` (245.76 MHz from AD9364 DATA_CLK), 
 
 | Document | Description |
 |----------|-------------|
-| [v2 Design Document](spectra_v2_design.md) | SoC architecture overview, data/control paths, clocking |
-| [Clocking & AD9364 Init](docs/clocking_and_ad9364_init.md) | Clock tree, BBPLL configuration, bring-up sequence |
-| [Detailed Gateware Reference](docs/spectra_v2_design.md) | Module-level design reference with register maps |
+| [Quick Start Guide](docs/quickstart.md) | Build, load, validate, stream — end to end |
+| [v2 Design Reference](docs/spectra_v2_design.md) | SoC architecture, module reference, register maps |
+| [Clocking & AD9364 Init](docs/clocking_and_ad9364_init.md) | Clock tree, BBPLL config, bring-up sequence |
 | [Developer Experience Strategy](docs/developer_experience_strategy.md) | SDK roadmap and API design |
 | [Pin Map Reference](docs/litex_m2sdr_pinmap_reference.md) | LiteX-M2SDR upstream pin comparison |
 | [Resource Utilization](resource_utilization.md) | FPGA resource usage vs reference designs |
