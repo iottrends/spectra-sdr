@@ -21,13 +21,18 @@ See the full **[Quick Start Guide](docs/quickstart.md)** for detailed instructio
 git clone https://github.com/iottrends/spectra-sdr.git
 cd spectra-sdr
 pip install -r requirements.txt
+make deps            # clone upstream litex_m2sdr reference
 
-make build          # synthesize bitstream (requires Vivado)
-make load           # load via JTAG
-make validate-jtag  # verify hardware
+make build           # synthesize bitstream (requires Vivado)
+make load            # load via JTAG
+make validate-jtag   # verify hardware
 
-# Initialize AD9364 and start streaming
-python3 scripts/ad9364_init.py --transport jtag --rx-lo 100 --gain 40
+# Install host software for SDR apps
+make driver-install  # build + install kernel module
+make soapysdr-install  # build + install SoapySDR plugin
+
+# Use with GQRX, SDRangel, or GNU Radio
+SoapySDRUtil --find   # should show "Spectra SDR"
 ```
 
 ## Project structure
@@ -41,6 +46,8 @@ python3 scripts/ad9364_init.py --transport jtag --rx-lo 100 --gain 40
 | `usb_iq_device.v` | Generated Verilog (regenerate with `python3 usb_iq_device.py`) |
 | `validate_sdr.py` | Post-bitstream hardware validation (10-step test suite) |
 | `scripts/ad9364_init.py` | Minimal AD9364 init — BBPLL, LO, gain, enables IQ streaming |
+| `software/kernel/` | Linux kernel module (PCIe DMA driver) |
+| `software/soapysdr/` | SoapySDR plugin — enables GQRX, SDRangel, GNU Radio |
 | `setup_deps.sh` | Clones upstream litex_m2sdr reference repo |
 
 ## Architecture
