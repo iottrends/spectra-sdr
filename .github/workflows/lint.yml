@@ -1,0 +1,19 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check Python syntax
+        run: python -m py_compile spectra_platform.py spectra_target.py spectra_target_v2.py usb_iq_device.py validate_sdr.py scripts/ad9364_init.py
+      - name: Check CMake exists
+        run: test -f software/soapysdr/CMakeLists.txt
