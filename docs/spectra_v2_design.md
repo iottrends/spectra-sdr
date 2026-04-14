@@ -1,12 +1,12 @@
-# Hallycon M2 SDR — v2 Gateware Design Reference
+# Spectra SDR — v2 Gateware Design Reference
 
-**Board:** Hallycon M2 SDR (M.2 2280 form factor)
+**Board:** Spectra SDR (M.2 2280 form factor)
 **FPGA:** Xilinx XC7A50T-2CSG325I (Artix-7, speed grade -2)
 **RFIC:** AD9364BBCZ (pin-compatible with AD9361 / AD9363)
 **Build tool:** Vivado 2025.2
 **Framework:** LiteX + Migen (Python-based HDL)
-**Target file:** `hallycon_m2sdr_target_v2.py`
-**Platform file:** `hallycon_m2sdr_platform.py`
+**Target file:** `spectra_target_v2.py`
+**Platform file:** `spectra_platform.py`
 **Last successful build:** 2026-04-05
 
 ---
@@ -170,7 +170,7 @@ sys → clk40: set_false_path                         (PLL feedback, not a real 
 
 ### 4.1 CRG — Clock and Reset Generator
 
-**File:** `hallycon_m2sdr_target_v2.py` — `class _CRG`
+**File:** `spectra_target_v2.py` — `class _CRG`
 
 - Requests `clk40` (40 MHz TCXO, pin P4)
 - Instantiates `S7PLL` → 125 MHz `cd_sys` + 200 MHz `cd_idelay`
@@ -180,7 +180,7 @@ sys → clk40: set_false_path                         (PLL feedback, not a real 
 
 ### 4.2 AD9364SPIMaster
 
-**File:** `hallycon_m2sdr_target_v2.py` — `class AD9364SPIMaster`
+**File:** `spectra_target_v2.py` — `class AD9364SPIMaster`
 
 - Custom 4-wire SPI master, CPOL=0, CPHA=1
 - Data width: 24-bit (matches AD9364 register format)
@@ -190,7 +190,7 @@ sys → clk40: set_false_path                         (PLL feedback, not a real 
 
 ### 4.3 AD9364PHY
 
-**File:** `hallycon_m2sdr_target_v2.py` — `class AD9364PHY`
+**File:** `spectra_target_v2.py` — `class AD9364PHY`
 
 Implements the AD9364 LVDS DDR data interface in the `rfic` clock domain.
 
@@ -217,7 +217,7 @@ Implements the AD9364 LVDS DDR data interface in the `rfic` clock domain.
 
 ### 4.4 AD9364Core
 
-**File:** `hallycon_m2sdr_target_v2.py` — `class AD9364Core`
+**File:** `spectra_target_v2.py` — `class AD9364Core`
 
 Top-level AD9364 wrapper combining SPI master + PHY + CDC FIFOs.
 
@@ -594,7 +594,7 @@ All offsets are relative to BAR0 base / Wishbone `0x00000000`. All registers 32-
 
 ## 8. FPGA Resource Utilization
 
-**Build:** `hallycon_m2sdr_platform` — post-place, Fully Placed
+**Build:** `spectra_platform` — post-place, Fully Placed
 **Device:** `xc7a50t-2csg325` (Artix-7 50T, speed grade −2)
 **Tool:** Vivado 2025.2 — `report_utilization_place.rpt`
 
@@ -816,26 +816,26 @@ Vivado IP core: `pcie_7x`, module name `pcie_s7`
 
 ```
 m2sdr50t/
-├── hallycon_m2sdr_platform.py      # Platform: pin definitions, IO standards, CDC constraints
-├── hallycon_m2sdr_target_v2.py     # Top-level SoC: all modules wired together
+├── spectra_platform.py      # Platform: pin definitions, IO standards, CDC constraints
+├── spectra_target_v2.py     # Top-level SoC: all modules wired together
 ├── usb_iq_device.py                # LUNA Amaranth source for USB bulk device
 ├── usb_iq_device.v                 # Generated Verilog (354 KB) — do not hand-edit
 ├── validate_sdr.py                 # Customer-facing hardware validation script
 │
 ├── docs/
-│   ├── hallycon_m2sdr_v2_design.md         # This file
+│   ├── spectra_v2_design.md                # This file
 │   ├── clocking_and_ad9364_init.md         # Clocking + AD9364 init deep-dive
 │   └── resource_utilization.md             # Utilization comparison vs litex_m2sdr
 │
 ├── build/
-│   └── hallycon_m2sdr_platform/
+│   └── spectra_platform/
 │       ├── gateware/
-│       │   ├── hallycon_m2sdr_platform.bit          # Bitstream
-│       │   ├── hallycon_m2sdr_platform.bin          # QSPI flash image
-│       │   ├── hallycon_m2sdr_platform.v            # LiteX-generated RTL
-│       │   ├── hallycon_m2sdr_platform.tcl          # Vivado build script
-│       │   ├── hallycon_m2sdr_platform_timing.rpt   # Final timing report
-│       │   └── hallycon_m2sdr_platform_utilization_place.rpt
+│       │   ├── spectra_platform.bit          # Bitstream
+│       │   ├── spectra_platform.bin          # QSPI flash image
+│       │   ├── spectra_platform.v            # LiteX-generated RTL
+│       │   ├── spectra_platform.tcl          # Vivado build script
+│       │   ├── spectra_platform_timing.rpt   # Final timing report
+│       │   └── spectra_platform_utilization_place.rpt
 │       ├── csr.csv                          # Full CSR address map
 │       └── software/
 │           ├── include/generated/csr.h      # C CSR accessors
@@ -874,14 +874,14 @@ python3 usb_iq_device.py          # writes usb_iq_device.v
 
 ```bash
 cd /mnt/d/work/m2sdr50t
-python3 hallycon_m2sdr_target_v2.py --build
-# Output: build/hallycon_m2sdr_platform/gateware/hallycon_m2sdr_platform.bit
+python3 spectra_target_v2.py --build
+# Output: build/spectra_platform/gateware/spectra_platform.bit
 ```
 
 ### Load bitstream via JTAG
 
 ```bash
-python3 hallycon_m2sdr_target_v2.py --load
+python3 spectra_target_v2.py --load
 # Uses OpenFPGALoader with digilent_hs2 cable, freq=10 MHz
 ```
 
@@ -889,13 +889,13 @@ python3 hallycon_m2sdr_target_v2.py --load
 
 ```bash
 openFPGALoader --board arty_a7 \
-  build/hallycon_m2sdr_platform/gateware/hallycon_m2sdr_platform.bin
+  build/spectra_platform/gateware/spectra_platform.bin
 ```
 
 ### Build litepcie kernel module
 
 ```bash
-cd build/hallycon_m2sdr_platform/software/kernel
+cd build/spectra_platform/software/kernel
 make
 sudo insmod litepcie.ko
 # /dev/litepcie0 should appear
@@ -999,8 +999,8 @@ Step 7: Tune to FM broadcast band (~100 MHz)
 |---|---|---|---|---|
 | Matchstiq S10 | Epiq Solutions | Custom | 31 × 50 | No |
 | LimeSDR Mini 2.0 | Lime Micro | Custom | 69 × 31 | No |
-| Hallycon M2 SDR v1 | Hallycon | M.2 2280 | 22 × 80 | Yes |
-| **Hallycon M2 SDR v2** | **Hallycon** | **M.2 2260** | **22 × 60** | **Yes** |
+| Spectra SDR v1 | Hallycon | M.2 2280 | 22 × 80 | Yes |
+| **Spectra SDR v2** | **Hallycon** | **M.2 2260** | **22 × 60** | **Yes** |
 
 Epiq Solutions is the closest competitor in terms of size and capability. Their 31×50mm
 board (1,550 mm²) is not M.2 standard — it requires a custom carrier. The v2 at 22×60mm

@@ -1,7 +1,7 @@
-# Hallycon M2 SDR SoC v2 Design Document
+# Spectra SDR SoC v2 Design Document
 
 ## 1. Overview
-The **Hallycon M2 SDR v2** is a high-performance Software Defined Radio (SDR) platform based on a CPU-less LiteX SoC architecture. It provides two high-speed host interfaces—**PCIe Gen2 x2** and **USB 2.0 (High-Speed)**—to stream IQ data from an **AD9364 RFIC**.
+The **Spectra SDR v2** is a high-performance Software Defined Radio (SDR) platform based on a CPU-less LiteX SoC architecture. It provides two high-speed host interfaces—**PCIe Gen2 x2** and **USB 2.0 (High-Speed)**—to stream IQ data from an **AD9364 RFIC**.
 
 ## 2. Block Diagram
 ```mermaid

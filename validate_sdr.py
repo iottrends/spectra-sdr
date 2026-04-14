@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hallycon M2 SDR — Customer Validation Script
+Spectra SDR — Customer Validation Script
 =============================================
 Run this after loading the bitstream to verify your SDR is working correctly.
 
@@ -166,7 +166,7 @@ def test_pcie_dma_idle(bus):
 def banner():
     print()
     print(HEAD("╔══════════════════════════════════════════════════╗"))
-    print(HEAD("║       Hallycon M2 SDR — Hardware Validation       ║"))
+    print(HEAD("║         Spectra SDR — Hardware Validation          ║"))
     print(HEAD("╚══════════════════════════════════════════════════╝"))
     print()
 
@@ -181,7 +181,7 @@ def main():
     banner()
 
     parser = argparse.ArgumentParser(
-        description="Hallycon M2 SDR hardware validation script",
+        description="Spectra SDR hardware validation script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -215,7 +215,7 @@ def main():
         script_dir = os.path.dirname(os.path.abspath(__file__))
         candidates = [
             os.path.join(script_dir, "csr.csv"),
-            os.path.join(script_dir, "build", "hallycon_m2sdr_platform", "csr.csv"),
+            os.path.join(script_dir, "build", "spectra_platform", "csr.csv"),
         ]
         csr_csv = next((p for p in candidates if os.path.exists(p)), None)
         if csr_csv is None:
@@ -338,7 +338,7 @@ def main():
     # ── Summary ────────────────────────────────────────────────────────────
     print(HEAD("══════════════════════════════════════════════════════"))
     if not failures:
-        print(PASS("  ALL TESTS PASSED — your Hallycon M2 SDR is ready."))
+        print(PASS("  ALL TESTS PASSED — your Spectra SDR is ready."))
     else:
         print(FAIL(f"  {len(failures)} TEST(S) FAILED:"))
         for f in failures:

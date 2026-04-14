@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hallycon M2 SDR — USB IQ Device (LUNA/Amaranth)
+Spectra SDR — USB IQ Device (LUNA/Amaranth)
 
 USB 2.0 HS bulk device using USB3320 ULPI PHY.
   EP1 IN  (FPGA → PC) : IQ RX stream, 512-byte packets
@@ -9,7 +9,7 @@ USB 2.0 HS bulk device using USB3320 ULPI PHY.
 Run this script directly to generate usb_iq_device.v:
     python3 usb_iq_device.py
 
-The generated Verilog is instantiated by hallycon_m2sdr_target_v2.py via
+The generated Verilog is instantiated by spectra_target_v2.py via
 platform.add_source() + Migen Instance().
 """
 
@@ -61,7 +61,7 @@ def _make_descriptors():
         dev.idVendor           = USB_VID
         dev.idProduct          = USB_PID
         dev.iManufacturer      = "Hallycon Ventures"
-        dev.iProduct           = "M2 SDR"
+        dev.iProduct           = "Spectra SDR"
         dev.iSerialNumber      = "00000001"
         dev.bNumConfigurations = 1
 

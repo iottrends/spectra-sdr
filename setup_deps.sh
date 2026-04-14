@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hallycon M2 SDR — dependency setup
+# Spectra SDR — dependency setup
 # Clones the upstream LiteX M2SDR reference design used during development.
 set -e
 

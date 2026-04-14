@@ -1,4 +1,4 @@
-# Hallycon M2 SDR — Clocking Architecture & AD9364 Initialization
+# Spectra SDR — Clocking Architecture & AD9364 Initialization
 
 ## 1. Clock Sources on the Board
 
@@ -53,7 +53,7 @@ PCIe 100 MHz refclk  (M.2 connector, from host PCIe controller)
 
 > **Note:** `cd_rfic` frequency is software-configurable. When the AD9364 BBPLL is
 > programmed for a different sample rate, DATA_CLK frequency changes accordingly.
-> The timing constraint `1e9/245.76e6` in `hallycon_m2sdr_platform.py` must match
+> The timing constraint `1e9/245.76e6` in `spectra_platform.py` must match
 > the programmed rate.
 
 ---
@@ -67,7 +67,7 @@ PCIe 100 MHz refclk  (M.2 connector, from host PCIe controller)
 | sys ↔ pcie | Fully asynchronous | PCIe refclk from host | PCIe PHY handles internally | Managed by Xilinx PCIe IP |
 | sys ↔ clk40 | Source/derived | clk40 is PLL input, sys is PLL output | False path | `set_false_path` |
 
-All CDC constraints are applied in `hallycon_m2sdr_platform.py`
+All CDC constraints are applied in `spectra_platform.py`
 `do_finalize()` via `pre_placement_commands` (post-synthesis TCL, after clocks are defined).
 
 ---
@@ -271,7 +271,7 @@ Application (GNU Radio, custom)
 | 61.44 MSPS | 491.52 MHz | 122.88 MHz | 1R1T (2 cycles/sample) | 122.88 MHz |
 | 20.00 MSPS | 320.00 MHz | 160.00 MHz | 2R2T | 160.00 MHz |
 
-When changing sample rate, update the timing constraint in `hallycon_m2sdr_platform.py`:
+When changing sample rate, update the timing constraint in `spectra_platform.py`:
 
 ```python
 self.rfic_clk_freq = 245.76e6   # change this to match programmed DATA_CLK

@@ -1,4 +1,4 @@
-# Hallycon M2 SDR — Developer Experience (DX) Strategy
+# Spectra SDR — Developer Experience (DX) Strategy
 
 ## Goal: Build "ESP32-like" usability for our SDR platform
 
@@ -31,7 +31,7 @@ The user sees one object: `sdr`.
 
 ## 3. Hardware Capabilities (What the SDK Exposes)
 
-Based on the Hallycon M2 SDR hardware:
+Based on the Spectra SDR hardware:
 
 | Capability | Value | Notes |
 |---|---|---|

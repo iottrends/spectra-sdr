@@ -1,11 +1,11 @@
 #
-# This file is part of Hallycon M2 SDR.
+# This file is part of Spectra SDR.
 #
 # Copyright (c) 2026 Hallycon Ventures
 # Based on LiteX-M2SDR platform by Enjoy-Digital <enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Board: Hallycon M2 SDR (M.2 2280)
+# Board: Spectra SDR (M.2 2280)
 # FPGA:  XC7A50T-2CSG325I
 # RFIC:  AD9364BBCZ (pin-compatible with AD9361/AD9363)
 # USB:   USB3320C-EZK-TR (ULPI PHY)

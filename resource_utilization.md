@@ -4,7 +4,7 @@
 
 | Build | Device | Speed | PCIe | Date |
 |---|---|---|---|---|
-| `hallycon_m2sdr_platform` (our design) | XC7A50T-2CSG325I | -2 | Yes (x1) + HyperRAM + AD9364 + JTAGBone + ICAP + XADC + DNA | 2026-04-04 |
+| `spectra_platform` (our design) | XC7A50T-2CSG325I | -2 | Yes (x1) + HyperRAM + AD9364 + JTAGBone + ICAP + XADC + DNA | 2026-04-04 |
 | `litex_m2sdr_m2` (reference, no PCIe) | XC7A200T-3SBG484 | -3 | No | 2026-04-04 |
 | `litex_m2sdr_m2_pcie_x1` (reference, with PCIe) | XC7A200T-3SBG484 | -3 | Yes (x1) | 2026-04-04 |
 
@@ -23,7 +23,7 @@
 
 ## Features in Each Build
 
-### Our design (`hallycon_m2sdr_platform`)
+### Our design (`spectra_platform`)
 - PCIe Gen2 x1 (hard PCIE_2_1 block + LitePCIe DMA)
 - HyperRAM controller (IS66WVH8M8ALL, 8MB)
 - AD9364 LVDS PHY (RX + TX, 6-bit DDR)

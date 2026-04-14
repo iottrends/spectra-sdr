@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #
-# Hallycon M2 SDR - LiteX Target v2 (CPU-less PCIe DMA <-> AD9364)
+# Spectra SDR - LiteX Target (CPU-less PCIe DMA <-> AD9364)
 #
 
 import os
@@ -12,7 +12,7 @@ from migen import *
 from migen.genlib.cdc import MultiReg
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from hallycon_m2sdr_platform import Platform
+from spectra_platform import Platform
 
 from litex.gen import *
 from litex.soc.cores.clock import *
@@ -451,7 +451,7 @@ class BaseSoC(SoCCore):
 
         self.submodules.crg = _CRG(platform, sys_clk_freq)
         SoCCore.__init__(self, platform, sys_clk_freq,
-                         ident="Hallycon M2 SDR SoC", **kwargs)
+                         ident="Spectra SDR SoC", **kwargs)
 
         # LEDs
         self.submodules.leds = LedChaser(
@@ -526,7 +526,7 @@ class BaseSoC(SoCCore):
 # ========================= Main =========================
 
 def main():
-    parser = argparse.ArgumentParser(description="Hallycon M2 SDR v2 LiteX SoC")
+    parser = argparse.ArgumentParser(description="Spectra SDR LiteX SoC")
     parser.add_argument("--build", action="store_true", help="Build bitstream")
     parser.add_argument("--load",  action="store_true", help="Load bitstream")
     builder_args(parser)

@@ -4,11 +4,11 @@
 
 ---
 
-## 1. Board Differences vs Hallycon M2 SDR
+## 1. Board Differences vs Spectra SDR
 
 ```
 ┌─────────────────────┬────────────────────────┬────────────────────────────┐
-│ Feature             │ LiteX-M2SDR            │ Hallycon M2 SDR v1         │
+│ Feature             │ LiteX-M2SDR            │ Spectra SDR v1         │
 ├─────────────────────┼────────────────────────┼────────────────────────────┤
 │ FPGA                │ XC7A200T-SBG484-3      │ XC7A50T-CSG325-2           │
 │ FPGA LUTs           │ 134,600                │ 32,600                     │

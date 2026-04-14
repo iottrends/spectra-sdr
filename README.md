@@ -1,4 +1,4 @@
-# Hallycon M2 SDR
+# Spectra SDR
 
 Compact M.2 2280 Software Defined Radio built on LiteX.
 
@@ -21,10 +21,10 @@ python3 -m venv venv && source venv/bin/activate
 pip install migen litex litepcie
 
 # 3. Build bitstream (requires Vivado)
-python3 hallycon_m2sdr_target_v2.py --build
+python3 spectra_target_v2.py --build
 
 # 4. Load and validate
-python3 hallycon_m2sdr_target_v2.py --load
+python3 spectra_target_v2.py --load
 sudo python3 validate_sdr.py
 ```
 
@@ -32,9 +32,9 @@ sudo python3 validate_sdr.py
 
 | File | Description |
 |------|-------------|
-| `hallycon_m2sdr_platform.py` | LiteX platform — FPGA pin map, I/O standards, timing constraints |
-| `hallycon_m2sdr_target.py` | v1 SoC target — PCIe DMA ↔ AD9364 (no USB) |
-| `hallycon_m2sdr_target_v2.py` | v2 SoC target — adds USB 2.0 IQ streaming |
+| `spectra_platform.py` | LiteX platform — FPGA pin map, I/O standards, timing constraints |
+| `spectra_target.py` | v1 SoC target — PCIe DMA ↔ AD9364 (no USB) |
+| `spectra_target_v2.py` | v2 SoC target — adds USB 2.0 IQ streaming |
 | `usb_iq_device.py` | Amaranth/LUNA USB bulk device generator |
 | `usb_iq_device.v` | Generated Verilog (regenerate with `python3 usb_iq_device.py`) |
 | `validate_sdr.py` | Post-bitstream hardware validation (XADC, DNA, SPI, DMA) |
