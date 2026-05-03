@@ -3,8 +3,7 @@
 A compact M.2 2280 Software Defined Radio.
 
 <p align="center">
-  <img src="docs/front_m.2_2280.webp" width="400" alt="Spectra SDR front"/>
-  <img src="docs/back_m.2_2280.webp" width="400" alt="Spectra SDR back"/>
+  <img src="docs/spectra-sdr.png" width="800" alt="Spectra SDR M.2 2280 module"/>
 </p>
 
 |  |  |
