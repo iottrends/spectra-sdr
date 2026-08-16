@@ -48,7 +48,8 @@ class ULPIInterface(Record):
 USB_VID = 0x1209   # pid.codes testing VID (replace with your own for production)
 USB_PID = 0x5380
 
-MAX_PACKET_SIZE = 512   # HS bulk max packet size
+MAX_PACKET_SIZE  = 512   # HS bulk max packet size (IQ endpoints)
+CTRL_PACKET_SIZE = 64    # command/response endpoints — 12B cmd / 8B resp frames
 
 # ---------------------------------------------------------------------------
 # USB descriptor builder
@@ -84,6 +85,16 @@ def _make_descriptors():
             with iface.EndpointDescriptor() as ep:
                 ep.bEndpointAddress = 0x02   # EP2 OUT
                 ep.wMaxPacketSize   = MAX_PACKET_SIZE
+
+            # EP3 IN — register-access response (FPGA → PC)
+            with iface.EndpointDescriptor() as ep:
+                ep.bEndpointAddress = 0x83   # EP3 IN
+                ep.wMaxPacketSize   = CTRL_PACKET_SIZE
+
+            # EP3 OUT — register-access command (PC → FPGA)
+            with iface.EndpointDescriptor() as ep:
+                ep.bEndpointAddress = 0x03   # EP3 OUT
+                ep.wMaxPacketSize   = CTRL_PACKET_SIZE
 
     return d
 
@@ -129,6 +140,25 @@ class USBIQTop(Elaboratable):
         self.tx_data  = Signal(64)
         self.tx_valid = Signal()            # output
         self.tx_ready = Signal()
+
+        # Register-access command: PC → EP3 OUT → USBWishboneBridge (12-byte frame)
+        #   byte 0      : opcode (0x01=READ32, 0x02=WRITE32)
+        #   bytes 1-3   : reserved
+        #   bytes 4-7   : address (32-bit LE)
+        #   bytes 8-11  : write data (32-bit LE, ignored on READ32)
+        self.cmd_opcode = Signal(8)         # output
+        self.cmd_addr   = Signal(32)        # output
+        self.cmd_wdata  = Signal(32)        # output
+        self.cmd_valid  = Signal()          # output
+        self.cmd_ready  = Signal()          # input — backpressure from USBWishboneBridge
+
+        # Register-access response: USBWishboneBridge → EP3 IN → PC (8-byte frame)
+        #   bytes 0-3 : status (0x00=OK, 0x01=BUS_ERROR, 0x02=BAD_OPCODE)
+        #   bytes 4-7 : read data (32-bit LE)
+        self.resp_status = Signal(32)       # input
+        self.resp_rdata  = Signal(32)       # input
+        self.resp_valid  = Signal()         # input
+        self.resp_ready  = Signal()         # output
 
         # Status output
         self.usb_connected = Signal()
@@ -213,6 +243,60 @@ class USBIQTop(Elaboratable):
         ]
 
         # ------------------------------------------------------------------
+        # EP3 OUT — register-access command (PC → FPGA), 12-byte frame
+        # USBStreamOutEndpoint is 1-byte wide; assemble 12 bytes into cmd_shift.
+        # ------------------------------------------------------------------
+        ep_cmd_out = USBStreamOutEndpoint(
+            endpoint_number = 3,
+            max_packet_size = CTRL_PACKET_SIZE,
+            buffer_size     = CTRL_PACKET_SIZE,
+        )
+        usb.add_endpoint(ep_cmd_out)
+
+        cmd_shift   = Signal(96)   # byte0=opcode, bytes1-3=reserved, bytes4-7=addr, bytes8-11=wdata
+        cmd_count   = Signal(4)    # counts 0..11
+        cmd_valid_r = Signal()
+
+        with m.If(ep_cmd_out.stream.valid):
+            m.d.sync += cmd_shift.word_select(cmd_count, 8).eq(ep_cmd_out.stream.payload)
+            with m.If(cmd_count == 11):
+                m.d.sync += [
+                    cmd_count  .eq(0),
+                    cmd_valid_r.eq(1),
+                ]
+            with m.Else():
+                m.d.sync += [
+                    cmd_count  .eq(cmd_count + 1),
+                    cmd_valid_r.eq(0),
+                ]
+        with m.Elif(self.cmd_ready):
+            m.d.sync += cmd_valid_r.eq(0)
+
+        m.d.comb += [
+            ep_cmd_out.stream.ready.eq(self.cmd_ready | ~cmd_valid_r),
+            self.cmd_valid          .eq(cmd_valid_r),
+            self.cmd_opcode         .eq(cmd_shift[0:8]),
+            self.cmd_addr           .eq(cmd_shift[32:64]),
+            self.cmd_wdata          .eq(cmd_shift[64:96]),
+        ]
+
+        # ------------------------------------------------------------------
+        # EP3 IN — register-access response (FPGA → PC), 8-byte frame
+        # ------------------------------------------------------------------
+        ep_resp_in = USBMultibyteStreamInEndpoint(
+            byte_width      = 8,
+            endpoint_number = 3,
+            max_packet_size = CTRL_PACKET_SIZE,
+        )
+        usb.add_endpoint(ep_resp_in)
+
+        m.d.comb += [
+            ep_resp_in.stream.payload.eq(Cat(self.resp_status, self.resp_rdata)),
+            ep_resp_in.stream.valid  .eq(self.resp_valid),
+            self.resp_ready          .eq(ep_resp_in.stream.ready),
+        ]
+
+        # ------------------------------------------------------------------
         # Connect device + status
         # ------------------------------------------------------------------
         m.d.comb += [
@@ -236,6 +320,8 @@ def generate_verilog(output_path="usb_iq_device.v"):
         top.ulpi_dir, top.ulpi_nxt, top.ulpi_stp, top.ulpi_rst,
         top.rx_data, top.rx_valid, top.rx_ready,
         top.tx_data, top.tx_valid, top.tx_ready,
+        top.cmd_opcode, top.cmd_addr, top.cmd_wdata, top.cmd_valid, top.cmd_ready,
+        top.resp_status, top.resp_rdata, top.resp_valid, top.resp_ready,
         top.usb_connected,
     ]
 

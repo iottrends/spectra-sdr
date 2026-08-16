@@ -101,7 +101,14 @@ same pinout, software, and ecosystem.
 available. USB 2.0 HS gives you ~5 MSPS — enough for FM, ADS-B, LoRa,
 and narrowband telemetry. PCIe gives you the full 61.44 MSPS. The
 SoapySDR plugin auto-detects which is available. Same board, same
-bitstream, works everywhere.
+bitstream, works everywhere. IQ selection between the two is automatic
+in hardware: the FPGA watches the PCIe link's own status and routes
+AD9364's IQ stream to PCIe whenever it's trained and up, USB otherwise
+— no driver-side coordination needed. USB also carries a dedicated
+register-access endpoint (EP3), so AD9364 SPI, HyperRAM, XADC, DNA, and
+every other on-chip register are reachable over USB alone, the same as
+over PCIe or JTAG — a laptop with no PCIe slot and no JTAG probe can
+still fully configure and control the board over one USB cable.
 
 **No CPU on the FPGA.** The SoC is CPU-less by design. The host PC (or
 Raspberry Pi, or Jetson) is the CPU. The FPGA does what FPGAs do best:
@@ -288,8 +295,8 @@ Example -- receive FM radio in GQRX:
 | `spectra_platform.py` | FPGA pin map, I/O standards, timing constraints |
 | `spectra_target.py` | v1 SoC -- PCIe DMA to AD9364 |
 | `spectra_target_v2.py` | v2 SoC -- adds USB 2.0 IQ streaming |
-| `usb_iq_device.py` | USB bulk device generator (Amaranth/LUNA) |
-| `usb_iq_device.v` | Generated Verilog (regenerate: `python3 usb_iq_device.py`) |
+| `usb_iq_device.py` | USB device generator (Amaranth/LUNA) -- EP1/EP2 IQ streaming + EP3 register-access endpoint |
+| `usb_iq_device.v` | Generated Verilog (regenerate: `python3 usb_iq_device.py`, requires Amaranth + LUNA + `amaranth-yosys`) |
 
 ### Host software
 
@@ -322,23 +329,71 @@ Example -- receive FM radio in GQRX:
 
 ## Architecture
 
+Two independent planes: IQ samples and register control. Each host interface
+(PCIe, USB, JTAG) touches whichever planes it's wired for.
+
+**IQ streaming** -- PCIe DMA and USB EP1/EP2 both feed the same IQ Stream Mux,
+which picks exactly one source: PCIe whenever its link is trained and up,
+USB otherwise. No host-side coordination -- it's a hardware signal.
+
 ```
 Host PC
  |
- |-- PCIe Gen2 x2 --> LitePCIe DMA ----+
- |                                      |
- '-- USB 2.0 HS ----> LUNA USB Core ---+
-                                        |
-                                  Stream CDC FIFOs
-                                        |
-                                  AD9364 LVDS PHY
-                                        |
-                                  AD9364 RFIC (RF)
-                                  70 MHz -- 6 GHz
+ |-- PCIe Gen2 x2 --> LitePCIe DMA --+
+ |                                    |
+ '-- USB 2.0 HS ----> EP1/EP2 -------+
+                                      |
+                              IQ Stream Mux
+                       (PCIe wins if linked up, else USB)
+                                      |
+                                AD9364 LVDS PHY
+                                      |
+                                AD9364 RFIC (RF)
+                                70 MHz -- 6 GHz
 ```
 
+**Register access** -- AD9364 SPI, HyperRAM configuration, XADC, DNA, and
+every other CSR sit on a shared Wishbone bus with three independent masters:
+PCIe (via a BAR0-to-Wishbone bridge), USB (via a dedicated EP3 endpoint,
+separate from the EP1/EP2 IQ stream), and JTAG (via JTAGbone). Any one of
+the three works standalone -- JTAG needs no PCIe or USB, USB needs no PCIe
+or JTAG probe, and PCIe needs neither of the other two.
+
+```
+Host PC
+ |
+ |-- PCIe Gen2 x2 --> PCIe Wishbone Bridge --+
+ |                                            |
+ |-- USB 2.0 HS ----> USB EP3 ----------------+
+ |                                            |
+ '-- JTAG -----------> JTAGbone --------------+
+                                              |
+                                    Wishbone / CSR Bus
+                                              |
+                          +-------------------+-------------------+
+                          |                   |                   |
+                      AD9364 SPI          HyperRAM           XADC, DNA,
+                                                              other CSRs
+```
+
+USB's EP3 protocol is a 12-byte command / 8-byte response bulk exchange:
+
+| | Bytes | Contents |
+|---|---|---|
+| Command (EP3 OUT) | 0 | opcode -- `0x01` READ32, `0x02` WRITE32 |
+| | 1-3 | reserved |
+| | 4-7 | address (32-bit LE, Wishbone byte address) |
+| | 8-11 | write data (32-bit LE, ignored on READ32) |
+| Response (EP3 IN) | 0-3 | status -- `0x00` OK, `0x01` BUS_ERROR (timeout), `0x02` BAD_OPCODE |
+| | 4-7 | read data (32-bit LE) |
+
+*(Gateware-side: the bridge and endpoints are built and timing-clean as of
+this bitstream. The SoapySDR USB plugin doesn't call it yet -- today it
+does read-only IQ streaming; register access over USB currently requires
+talking to EP3 directly, e.g. via `libusb_bulk_transfer`.)*
+
 Three clock domains:
-- `sys` -- 125 MHz (logic, DMA, CSR bus)
+- `sys` -- 125 MHz (logic, DMA, Wishbone/CSR bus)
 - `rfic` -- 245.76 MHz (AD9364 DATA_CLK, IQ sample path)
 - `usb` -- 60 MHz (USB3320 ULPI interface)
 

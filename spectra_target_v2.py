@@ -20,6 +20,7 @@ from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder import *
 from litex.soc.cores.led import LedChaser
 from litex.soc.interconnect import stream
+from litex.soc.interconnect import wishbone
 from litex.soc.interconnect.csr import *
 from litex.soc.integration.soc import SoCRegion
 
@@ -412,6 +413,108 @@ class AD9364Core(LiteXModule):
         ]
 
 
+# ========================= USB Wishbone Bridge =========================
+
+def usb_cmd_layout():
+    return stream.EndpointDescription([
+        ("opcode", 8), ("addr", 32), ("wdata", 32),
+    ])
+
+
+def usb_resp_layout():
+    return stream.EndpointDescription([
+        ("status", 32), ("rdata", 32),
+    ])
+
+
+class USBWishboneBridge(LiteXModule):
+    """
+    Bridges 12-byte command frames from EP3 OUT (via usb_cmd_cdc, already in
+    sys domain) onto a Wishbone master, and returns 8-byte response frames
+    to EP3 IN (via usb_resp_cdc). Same FSM shape as LitePCIeWishboneMaster,
+    but with an explicit watchdog: unlike the PCIe crossbar (which always
+    acks), a USB command can name any address, so a bad one must not be able
+    to hang the bridge forever.
+
+    Opcodes : 0x01 = READ32, 0x02 = WRITE32
+    Status  : 0x00 = OK, 0x01 = BUS_ERROR (timeout), 0x02 = BAD_OPCODE
+    """
+    def __init__(self, cmd, resp, timeout_cycles=256):
+        self.bus = self.wishbone = wishbone.Interface()
+
+        timer   = Signal(max=timeout_cycles + 1)
+        timeout = Signal()
+        self.comb += timeout.eq(timer == timeout_cycles)
+
+        self.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.act("IDLE",
+            If(cmd.valid,
+                NextValue(timer, 0),
+                If(cmd.opcode == 0x01,
+                    NextState("READ"),
+                ).Elif(cmd.opcode == 0x02,
+                    NextState("WRITE"),
+                ).Else(
+                    NextState("BAD_OPCODE"),
+                ),
+            ),
+        )
+        fsm.act("READ",
+            self.bus.adr.eq(cmd.addr[2:]),
+            self.bus.sel.eq(0xf),
+            self.bus.we.eq(0),
+            self.bus.cyc.eq(1),
+            self.bus.stb.eq(1),
+            NextValue(timer, timer + 1),
+            If(self.bus.ack,
+                NextState("RESP_OK"),
+            ).Elif(timeout,
+                NextState("RESP_ERR"),
+            ),
+        )
+        fsm.act("WRITE",
+            self.bus.adr.eq(cmd.addr[2:]),
+            self.bus.dat_w.eq(cmd.wdata),
+            self.bus.sel.eq(0xf),
+            self.bus.we.eq(1),
+            self.bus.cyc.eq(1),
+            self.bus.stb.eq(1),
+            NextValue(timer, timer + 1),
+            If(self.bus.ack,
+                NextState("RESP_OK"),
+            ).Elif(timeout,
+                NextState("RESP_ERR"),
+            ),
+        )
+        fsm.act("RESP_OK",
+            resp.valid.eq(1),
+            resp.status.eq(0x00000000),
+            resp.rdata.eq(self.bus.dat_r),
+            If(resp.ready,
+                cmd.ready.eq(1),
+                NextState("IDLE"),
+            ),
+        )
+        fsm.act("RESP_ERR",
+            resp.valid.eq(1),
+            resp.status.eq(0x00000001),
+            resp.rdata.eq(0),
+            If(resp.ready,
+                cmd.ready.eq(1),
+                NextState("IDLE"),
+            ),
+        )
+        fsm.act("BAD_OPCODE",
+            resp.valid.eq(1),
+            resp.status.eq(0x00000002),
+            resp.rdata.eq(0),
+            If(resp.ready,
+                cmd.ready.eq(1),
+                NextState("IDLE"),
+            ),
+        )
+
+
 # ========================= CRG =========================
 
 class _CRG(Module):
@@ -517,6 +620,12 @@ class BaseSoC(SoCCore):
         usb_tx_cdc = stream.ClockDomainCrossing(dma_layout(64), cd_from="usb", cd_to="sys")
         self.submodules += usb_rx_cdc, usb_tx_cdc
 
+        # EP3 command/response CDC — usb_cmd_cdc.source and usb_resp_cdc.sink
+        # are both in sys domain, feeding/fed by USBWishboneBridge below.
+        usb_cmd_cdc  = stream.ClockDomainCrossing(usb_cmd_layout(),  cd_from="usb", cd_to="sys")
+        usb_resp_cdc = stream.ClockDomainCrossing(usb_resp_layout(), cd_from="sys", cd_to="usb")
+        self.submodules += usb_cmd_cdc, usb_resp_cdc
+
         self.specials += Instance("usb_iq_device",
             # Clock/reset (Amaranth uses usb_clk/usb_rst domain ports)
             i_usb_clk = ClockSignal("usb"),
@@ -544,9 +653,29 @@ class BaseSoC(SoCCore):
             o_tx_valid    = usb_tx_cdc.sink.valid,
             i_tx_ready    = usb_tx_cdc.sink.ready,
 
+            # Register command: PC → USB EP3 OUT → usb→sys CDC → USBWishboneBridge
+            o_cmd_opcode  = usb_cmd_cdc.sink.opcode,
+            o_cmd_addr    = usb_cmd_cdc.sink.addr,
+            o_cmd_wdata   = usb_cmd_cdc.sink.wdata,
+            o_cmd_valid   = usb_cmd_cdc.sink.valid,
+            i_cmd_ready   = usb_cmd_cdc.sink.ready,
+
+            # Register response: USBWishboneBridge → sys→usb CDC → USB EP3 IN → PC
+            i_resp_status = usb_resp_cdc.source.status,
+            i_resp_rdata  = usb_resp_cdc.source.rdata,
+            i_resp_valid  = usb_resp_cdc.source.valid,
+            o_resp_ready  = usb_resp_cdc.source.ready,
+
             # Status
             o_usb_connected = Signal(name="usb_connected"),
         )
+
+        # USB control-plane bridge: EP3 command/response → Wishbone master,
+        # giving USB the same CSR/Wishbone access PCIe already has via
+        # pcie_wishbone (AD9364 SPI, HyperRAM, XADC, DNA, all other CSRs).
+        # IQ endpoints (EP1/EP2) and the PCIe path/IQ mux are untouched.
+        self.submodules.usb_wishbone = USBWishboneBridge(usb_cmd_cdc.source, usb_resp_cdc.sink)
+        self.bus.add_master(name="usb_wishbone", master=self.usb_wishbone.wishbone)
 
         # IQ stream mux: PCIe drives AD9364 whenever the PCIe link is trained and
         # up; otherwise USB does. Driven by the PHY's own link-up status (already
