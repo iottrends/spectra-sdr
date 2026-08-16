@@ -29,6 +29,7 @@ from litex.soc.cores.hyperbus import HyperRAM as LiteHyperBus
 from litepcie.phy.s7pciephy import S7PCIEPHY
 from litepcie.core import LitePCIeEndpoint, LitePCIeMSI
 from litepcie.frontend.dma import LitePCIeDMA
+from litepcie.frontend.wishbone import LitePCIeWishboneMaster
 from litepcie.common import dma_layout
 from litepcie.software import generate_litepcie_software
 
@@ -478,6 +479,16 @@ class BaseSoC(SoCCore):
             bar0_size=0x20000,
         )
         self.submodules.pcie_endpoint = LitePCIeEndpoint(self.pcie_phy)
+
+        # BAR0-to-Wishbone bridge: without this, PCIe can only reach pcie_dma0's
+        # own MMIO registers (descriptor pointers, doorbells) via the crossbar
+        # port LitePCIeDMA requests for itself. Nothing else on the CSR bus
+        # (ad9364 SPI, hyperram, leds, xadc, dna, ...) is reachable over PCIe
+        # without a generic Wishbone master bridging BAR0 into self.bus — which
+        # is what this adds. jtagbone remains the only other Wishbone master.
+        self.submodules.pcie_wishbone = LitePCIeWishboneMaster(self.pcie_endpoint)
+        self.bus.add_master(name="pcie_wishbone", master=self.pcie_wishbone.wishbone)
+
         self.submodules.pcie_dma0 = LitePCIeDMA(
             self.pcie_phy,
             self.pcie_endpoint,
