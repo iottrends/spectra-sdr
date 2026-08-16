@@ -157,9 +157,13 @@ stick of gum. That's the goal. That's why this exists.
 
 Your Spectra SDR board comes **pre-flashed** with the v2 bitstream
 (`spectra_platform.bit`) that supports both **PCIe and USB** interfaces.
-Both paths are fully supported through SoapySDR — the plugin auto-detects
-which interface is available. PCIe Gen2 x2 gives full 61.44 MSPS throughput,
-USB 2.0 HS gives ~5 MSPS (sufficient for FM, ADS-B, and narrowband work).
+The plugin auto-detects which interface is available, PCIe wins automatically
+whenever it's linked up, and USB takes over otherwise. PCIe Gen2 x2 gives full
+61.44 MSPS throughput, USB 2.0 HS gives ~5 MSPS (sufficient for FM, ADS-B,
+and narrowband work). USB IQ is bidirectional at the FPGA level, but the
+SoapySDR USB plugin currently only implements RX streaming — TX host support
+is pending. Register/control access (AD9364 SPI, HyperRAM, XADC, DNA, all
+CSRs) is available over PCIe, USB (EP3), or JTAG independently.
 
 If you ever need to re-flash or update the bitstream, download the latest
 `spectra_platform.bit` from
