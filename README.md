@@ -334,6 +334,32 @@ Example -- receive FM radio in GQRX:
 
 ## Architecture
 
+At a glance -- three host interfaces, two planes:
+
+```
+                 SPECTRA SDR
+                     |
+        +------------+------------+
+        |            |            |
+      PCIe          USB          JTAG
+        |            |            |
+     IQ + CTRL    IQ + CTRL     CTRL/DEBUG
+        |            |            |
+        +------------+------------+
+                     |
+                 Wishbone            <-- CTRL plane only
+                     |
+          +----------+---------+
+          |          |         |
+       AD9364     HyperRAM    XADC
+       (SPI)                (+ DNA, other CSRs)
+```
+
+*(Simplified -- only the CTRL half of "IQ + CTRL" actually goes through
+Wishbone. IQ samples take a separate route straight to the AD9364 LVDS PHY
+via the IQ Stream Mux, not through the CSR bus. See the two diagrams below
+for the real split.)*
+
 Two independent planes: IQ samples and register control. Each host interface
 (PCIe, USB, JTAG) touches whichever planes it's wired for.
 
