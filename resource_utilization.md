@@ -4,36 +4,61 @@
 
 | Build | Device | Speed | PCIe | Date |
 |---|---|---|---|---|
-| `spectra_platform` (our design) | XC7A50T-2CSG325I | -2 | Yes (x1) + HyperRAM + AD9364 + JTAGBone + ICAP + XADC + DNA | 2026-04-04 |
+| `spectra_platform` (our design, rev 4) | XC7A50T-2CSG325I | -2 | Yes (x2) + HyperRAM + AD9364 + USB IQ/CTRL + PCIe/USB Wishbone Bridges + IQ Stream Mux + JTAGBone + ICAP + XADC + DNA | 2026-08-16 |
 | `litex_m2sdr_m2` (reference, no PCIe) | XC7A200T-3SBG484 | -3 | No | 2026-04-04 |
 | `litex_m2sdr_m2_pcie_x1` (reference, with PCIe) | XC7A200T-3SBG484 | -3 | Yes (x1) | 2026-04-04 |
 
+The `litex_m2sdr` reference columns are unchanged from the original comparison
+(no rebuild of that project was run in this pass) — only the "our design"
+column below reflects the current bitstream.
+
 ## Resource Utilization (Post-Place)
 
-| Resource | Our design (v2, full) | litex_m2sdr (no PCIe) | litex_m2sdr (+ PCIe) |
+| Resource | Our design (rev 4, full) | litex_m2sdr (no PCIe) | litex_m2sdr (+ PCIe) |
 |---|---|---|---|
-| Slice LUTs | 4,289 / 32,600 = **13.2%** | 2,540 / 133,800 = 1.9% | 7,407 / 133,800 = 5.5% |
-| Registers | 4,725 / 65,200 = **7.3%** | 4,435 / 267,600 = 1.7% | 8,489 / 267,600 = 3.2% |
-| Block RAM Tiles | 26 / 75 = **34.7%** | 0 / 365 = 0% | 36 / 365 = 9.9% |
+| Slice LUTs | 5,773 / 32,600 = **17.71%** | 2,540 / 133,800 = 1.9% | 7,407 / 133,800 = 5.5% |
+| Registers | 6,333 / 65,200 = **9.71%** | 4,435 / 267,600 = 1.7% | 8,489 / 267,600 = 3.2% |
+| Block RAM Tiles | 28 / 75 = **37.33%** | 0 / 365 = 0% | 36 / 365 = 9.9% |
 | DSP | 0 / 120 = 0% | 0 / 740 = 0% | 0 / 740 = 0% |
-| GTPE2_CHANNEL | 2 / 4 = 50% | 0 / 4 = 0% | 1 / 4 = 25% |
+| GTPE2_CHANNEL | 2 / 4 = 50% (PCIe x2) | 0 / 4 = 0% | 1 / 4 = 25% |
 | PCIE_2_1 | 1 / 1 = 100% | 0 / 1 = 0% | 1 / 1 = 100% |
-| Bonded IOB | 57 / 150 = 38% | 64 / 285 = 22% | 65 / 285 = 23% |
-| BUFGCTRL | 12 / 32 = 37.5% | 7 / 32 = 22% | 11 / 32 = 34% |
+| Bonded IOB | 69 / 150 = 46.00% | 64 / 285 = 22% | 65 / 285 = 23% |
+| BUFGCTRL | 12 / 32 = 37.50% | 7 / 32 = 22% | 11 / 32 = 34% |
+
+Post-route timing on the current build: WNS +0.247ns, WHS +0.053ns (0 setup/hold
+violations), one pre-existing pulse-width slack of -0.016ns on a single endpoint
+entirely inside the PCIe hard IP's own internal clocking (present in every build
+in this series, unrelated to any of the additions below). DRC: 0 errors, 3
+pre-existing warnings. Full detail in the Vivado reports under
+`build/spectra_platform/gateware/`.
 
 ## Features in Each Build
 
-### Our design (`spectra_platform`)
-- PCIe Gen2 x1 (hard PCIE_2_1 block + LitePCIe DMA)
+### Our design (`spectra_platform`, rev 4)
+- PCIe Gen2 x2 (hard PCIE_2_1 block + LitePCIe DMA)
+- **PCIe Wishbone Bridge** (`LitePCIeWishboneMaster`) — BAR0 MMIO reaches the
+  CSR bus, not just `pcie_dma0`'s own descriptor registers
 - HyperRAM controller (IS66WVH8M8ALL, 8MB)
-- AD9364 LVDS PHY (RX + TX, 6-bit DDR)
-- USB ULPI PHY (USB3320, pinned out but minimal logic)
-- QSPI Flash controller
-- CRG (40 MHz TCXO → 125 MHz sys via MMCM)
+- AD9364 LVDS PHY (RX + TX, 6-bit DDR) + SPI master
+- USB ULPI PHY (USB3320) — no longer "pinned out but minimal logic":
+  - EP1 IN / EP2 OUT: IQ streaming (LUNA/Amaranth `usb_iq_device.v`)
+  - EP3 IN / EP3 OUT: register command/response framing
+  - **USB Wishbone Bridge** (`USBWishboneBridge`) — EP3 frames reach the CSR
+    bus, same access AD9364 SPI/HyperRAM/XADC/DNA/etc. already have over PCIe
+    and JTAG
+- **IQ Stream Mux** — routes `ad9364.sink`/`.source` to PCIe DMA when the PCIe
+  link is trained and up, USB otherwise; driven by live PCIe link status, no
+  CSR write involved
+- QSPI Flash controller (config-only, Master SPI x4 boot — not on the CSR bus)
+- CRG (40 MHz TCXO → 125 MHz sys via PLL)
 - JTAGBone (BSCANE2 — JTAG → Wishbone CSR bridge, ~3,400 LUT overhead)
 - ICAP (remote bitstream reload)
 - XADC (on-chip temperature + voltage monitoring)
 - DNA (unique device serial)
+
+Three independent Wishbone bus masters as of rev 4: `pcie_wishbone`,
+`usb_wishbone`, `jtagbone` — PCIe, USB, and JTAG can each reach every CSR in
+the design standalone, with no dependency on either of the other two.
 
 ### litex_m2sdr reference (extras vs our design)
 - SI5351 programmable clock generator (I2C)
@@ -63,24 +88,45 @@ Delta between litex_m2sdr no-PCIe and with-PCIe:
 - The `PCIE_2_1` hard block itself costs **zero fabric LUTs**.
 
 ### Our design on XC7A50T
-If we added all litex_m2sdr features to our xc7a50t design, estimated total would be
-~7,400 LUTs = **~22.7% of our 32,600 LUTs**. Leaves ~75% for baseband / signal processing.
+Tracked incrementally across this build series (each step independently
+synthesized and verified, not estimated):
+
+| Change | Slice LUTs | Delta |
+|---|---|---|
+| PCIe DMA + AD9364, USB IQ endpoints wired but not yet muxed in | 5,012 | — |
+| + IQ Stream Mux (PCIe/USB share the AD9364 stream) | 5,276 | +264 |
+| + PCIe Wishbone Bridge (BAR0 &#8594; CSR bus) | 5,419 | +143 |
+| + USB Wishbone Bridge (EP3 &#8594; CSR bus) | 5,773 | +354 |
+
+Both Wishbone bridges together (PCIe + USB, giving every host interface full
+CSR/register access) cost **~497 LUTs** on top of the IQ-mux baseline — modest,
+well inside budget. Reusing the original comparison's ~3,111-LUT estimate for
+the litex_m2sdr-exclusive feature list (SI5351, TimeGenerator/PPSGenerator,
+SharedQPLL, TX/RX Header, Loopback+Crossbar, PRBS/AGC, MultiClk, StatusLed) on
+top of the current 5,773, estimated total would be roughly **~8,900 LUTs ≈
+27% of our 32,600 LUTs** — still leaves well over half the fabric free for
+baseband / signal processing.
 
 ### BRAM usage difference
 - Their PCIe DMA uses large descriptor FIFOs → 36 BRAM tiles.
-- Our design uses 10 BRAM tiles (AsyncFIFOs + HyperRAM controller).
+- Our design uses 28 BRAM tiles — AsyncFIFOs (AD9364 rx/tx, HyperRAM, USB IQ,
+  USB command/response, JTAGbone, PCIe MSI/TX/RX datapaths) plus the
+  HyperRAM controller's own buffering.
 
 ### Tightest resource: BUFGCTRL
-Clock buffers at **34%** (11/32) in the reference design with PCIe — the most constrained
-resource, not LUTs. Adding Ethernet or SATA would push this further.
+Clock buffers at **37.5%** (12/32) in our design — the most constrained
+resource, not LUTs. `sys`, `rfic`, `usb`, and `idelay` each need one, and the
+PCIe hard IP's internal MMCM contributes several more of its own — adding
+another independent clock domain would need care here before LUTs become the
+limiting factor.
 
 ### XC7A50T device limits (for planning)
 | Resource | Total | Notes |
 |---|---|---|
-| Slice LUTs | 32,600 | ~22% used by full feature set |
-| Registers | 65,200 | |
-| Block RAM tiles | 75 | 10 used now; 65 free |
+| Slice LUTs | 32,600 | 17.71% used by the full rev 4 feature set |
+| Registers | 65,200 | 9.71% used |
+| Block RAM tiles | 75 | 28 used now; 47 free |
 | DSP48E1 | 120 | 0 used — all free |
-| GTPE2_CHANNEL | 4 | 2 used (PCIe x1); 2 free |
-| BUFGCTRL | 32 | 10 used now |
+| GTPE2_CHANNEL | 4 | 2 used (PCIe x2); 2 free |
+| BUFGCTRL | 32 | 12 used now — tightest resource in the design |
 | PCIE_2_1 | 1 | Used |
