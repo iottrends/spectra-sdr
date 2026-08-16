@@ -485,25 +485,21 @@ class BaseSoC(SoCCore):
             buffering_depth=8192,
             with_loopback=False,
         )
-        self.add_csr("pcie_dma0")
+        # CSRs on pcie_dma0 are auto-discovered from the submodule hierarchy by
+        # LiteX's CSRBankArray during finalize() — no explicit add_csr() needed
+        # (SoCCore.add_csr(name) was removed from this LiteX version).
 
         # AD9364 RFIC
         self.submodules.ad9364 = AD9364Core(
             platform.request("ad9364_rfic"),
             platform.request("ad9364_spi"),
         )
-        self.add_csr("ad9364")
-
-        # Wire PCIe DMA ↔ AD9364 IQ stream
-        self.comb += [
-            self.pcie_dma0.source.connect(self.ad9364.sink),   # Host → RFIC (TX)
-            self.ad9364.source.connect(self.pcie_dma0.sink),   # RFIC → Host (RX)
-        ]
+        # Same as above: CSRs on ad9364 are auto-discovered, no add_csr() needed.
 
         # USB IQ Device (USB3320 ULPI → LUNA-generated Verilog)
         # CDC FIFOs bridge sys (125 MHz) ↔ usb (60 MHz) domains.
-        # USB and PCIe are independent paths; mux selection is done in software
-        # by enabling/disabling the PCIe DMA or USB endpoints.
+        # PCIe/USB selection for the AD9364 IQ stream is wired below, driven by
+        # live PCIe link status — see "IQ stream mux" after this instance.
         platform.add_source(os.path.join(os.path.dirname(__file__), "usb_iq_device.v"))
 
         usb_rx_cdc = stream.ClockDomainCrossing(dma_layout(64), cd_from="sys", cd_to="usb")
@@ -540,6 +536,26 @@ class BaseSoC(SoCCore):
             # Status
             o_usb_connected = Signal(name="usb_connected"),
         )
+
+        # IQ stream mux: PCIe drives AD9364 whenever the PCIe link is trained and
+        # up; otherwise USB does. Driven by the PHY's own link-up status (already
+        # resynchronized into sys by S7PCIEPHY.add_resync()), not a CSR — so this
+        # works with zero host-software cooperation even when only USB is wired
+        # (e.g. a carrier board with no PCIe lanes connected, where the link never
+        # trains and pcie_link_up simply never asserts). When both are wired,
+        # PCIe wins as soon as it trains, matching "prefer PCIe when available".
+        pcie_link_up = self.pcie_phy._link_status.fields.status
+        self.comb += [
+            If(pcie_link_up,
+                self.pcie_dma0.source.connect(self.ad9364.sink),   # PCIe → RFIC (TX)
+                self.ad9364.source.connect(self.pcie_dma0.sink),   # RFIC → PCIe (RX)
+                usb_tx_cdc.source.ready.eq(0),                     # hold USB TX off
+            ).Else(
+                usb_tx_cdc.source.connect(self.ad9364.sink),       # USB → RFIC (TX)
+                self.ad9364.source.connect(usb_rx_cdc.sink),       # RFIC → USB (RX)
+                self.pcie_dma0.source.ready.eq(0),                 # hold PCIe reader off
+            ),
+        ]
 
         # JTAGBone: JTAG → Wishbone bridge for CSR access without PCIe
         self.add_jtagbone()

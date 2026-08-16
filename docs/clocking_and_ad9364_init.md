@@ -23,7 +23,7 @@ The USB and PCIe clocks are completely independent.
    │               ├─► cd_sys    = 125 MHz   (main fabric clock)
    │               └─► cd_idelay = 200 MHz   (IDELAYCTRL reference)
    │
-   └─► AD9364 XTALP / XTALN  (analog reference input, not in FPGA pinmap)
+   └─► AD9364 XTALN (M12, active TCXO input; not in FPGA pinmap — XTALP/M11 is NC)
            └─► AD9364 BBPLL  (software-configured, target = 491.52 MHz)
                    └─► DATA_CLK = 245.76 MHz  (LVDS output, pin E16/D16)
                            └─► FPGA pin E16  (IO_L14P_T2_SRCC_15, Bank 15, 2.5V)
