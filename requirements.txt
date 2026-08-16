@@ -9,6 +9,9 @@ litepcie
 # USB device generation (only needed to regenerate usb_iq_device.v)
 # amaranth==0.4.5
 # luna==0.2.3
+# amaranth-yosys  (Yosys backend used by amaranth.back.verilog)
 
 # Validation / host tools
 # litex  (RemoteClient, already listed above)
+# pyusb  (only needed for validate_sdr.py's Step 11 — USB EP3 control-plane
+#         bridge test; the rest of validate_sdr.py doesn't need it)

@@ -25,6 +25,9 @@ The bitstream ships a LiteX CSR bridge. The script checks:
   - AD9364 revision and key register readback
   - LED toggle (visual confirmation)
   - PCIe DMA status (PCIe transport only)
+  - USB EP3 control-plane bridge (READ32/WRITE32 over raw USB bulk transfers,
+    independent of the --transport bus above; runs whenever a USB device is
+    detected. Requires pyusb: pip install pyusb)
 """
 
 import os
@@ -83,6 +86,109 @@ def _spi_write(bus, addr, data):
         if time.time() > timeout:
             raise TimeoutError("SPI transfer timed out")
         time.sleep(0.001)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# USB EP3 control-plane helpers
+#
+# Completely independent of RemoteClient/litex_server above — these talk
+# directly to raw USB bulk endpoints 0x03 (OUT, command) / 0x83 (IN,
+# response) using the 12-byte command / 8-byte response frames implemented
+# by USBWishboneBridge + usb_iq_device.py's EP3 endpoints. Register
+# addresses are looked up from the already-connected `bus` (RemoteClient)
+# object's parsed csr.csv — same address map, two independent physical
+# paths to it.
+# ──────────────────────────────────────────────────────────────────────────────
+
+USB_EP3_OUT = 0x03
+USB_EP3_IN  = 0x83
+USB_EP3_TIMEOUT_MS = 1000
+
+USB_OP_READ32  = 0x01
+USB_OP_WRITE32 = 0x02
+
+USB_STATUS_OK         = 0x00
+USB_STATUS_BUS_ERROR  = 0x01
+USB_STATUS_BAD_OPCODE = 0x02
+
+USB_STATUS_NAMES = {
+    USB_STATUS_OK:         "OK",
+    USB_STATUS_BUS_ERROR:  "BUS_ERROR",
+    USB_STATUS_BAD_OPCODE: "BAD_OPCODE",
+}
+
+
+def _usb_ep3_open():
+    """Open the Spectra SDR USB device and claim its interface for EP3 access."""
+    import usb.core
+    import usb.util
+    dev = usb.core.find(idVendor=0x1209, idProduct=0x5380)
+    if dev is None:
+        raise RuntimeError("Spectra SDR USB device not found")
+    try:
+        if dev.is_kernel_driver_active(0):
+            dev.detach_kernel_driver(0)
+    except (NotImplementedError, usb.core.USBError):
+        pass  # platform doesn't need/support detach
+    dev.set_configuration()
+    usb.util.claim_interface(dev, 0)
+    return dev
+
+
+def _usb_ep3_close(dev):
+    import usb.util
+    try:
+        usb.util.release_interface(dev, 0)
+    except Exception:
+        pass
+
+
+def _usb_ep3_transact(dev, opcode, addr, wdata=0):
+    """Send one 12-byte EP3 command frame, return (status, rdata) from the 8-byte response."""
+    cmd = struct.pack("<BxxxII", opcode, addr & 0xFFFFFFFF, wdata & 0xFFFFFFFF)
+    dev.write(USB_EP3_OUT, cmd, timeout=USB_EP3_TIMEOUT_MS)
+    resp = dev.read(USB_EP3_IN, 8, timeout=USB_EP3_TIMEOUT_MS)
+    status, rdata = struct.unpack("<II", bytes(resp))
+    return status, rdata
+
+
+def usb_ep3_read32(dev, addr):
+    status, rdata = _usb_ep3_transact(dev, USB_OP_READ32, addr)
+    if status != USB_STATUS_OK:
+        raise IOError(f"EP3 READ32 @0x{addr:08x} -> {USB_STATUS_NAMES.get(status, hex(status))}")
+    return rdata
+
+
+def usb_ep3_write32(dev, addr, data):
+    status, _ = _usb_ep3_transact(dev, USB_OP_WRITE32, addr, data)
+    if status != USB_STATUS_OK:
+        raise IOError(f"EP3 WRITE32 @0x{addr:08x} -> {USB_STATUS_NAMES.get(status, hex(status))}")
+
+
+def _usb_read_csr(dev, reg):
+    """Read a (possibly multi-word) CSR entirely via EP3, reconstructing it
+    the same MSB-first way CSRRegister.read() does over RemoteClient, so the
+    two paths are directly comparable."""
+    value = 0
+    for i in range(reg.length):
+        word = usb_ep3_read32(dev, reg.addr + i * 4)
+        value = (value << reg.data_width) | word
+    return value
+
+
+def _usb_spi_read(dev, spi_addrs, spi_reg_addr):
+    """AD9364 SPI read via raw USB EP3 register pokes — same sequence as
+    _spi_read() above, but every step goes over USB bulk transfers instead
+    of RemoteClient."""
+    mosi_val = (1 << 23) | (spi_reg_addr << 8)
+    usb_ep3_write32(dev, spi_addrs["mosi"], mosi_val)
+    usb_ep3_write32(dev, spi_addrs["control"], (24 << 8) | 1)
+    timeout = time.time() + 0.1
+    while not (usb_ep3_read32(dev, spi_addrs["status"]) & 1):
+        if time.time() > timeout:
+            raise TimeoutError("USB EP3 SPI transfer timed out")
+        time.sleep(0.001)
+    return usb_ep3_read32(dev, spi_addrs["miso"]) & 0xFF
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Individual test functions
@@ -321,6 +427,92 @@ def test_pcie_dma_idle(bus):
     # Both should be 0 before we start anything
     ok = (writer_en == 0) and (reader_en == 0)
     return ok, {"writer_enable": writer_en, "reader_enable": reader_en}
+
+
+def test_usb_ep3_bridge(bus):
+    """
+    Exercise the USB EP3 control-plane bridge (USBWishboneBridge) directly
+    over raw USB bulk transfers — completely bypassing RemoteClient and
+    litex_server. Cross-checks every read against the same register already
+    read over `bus` in earlier steps, so this proves EP3 reaches the same
+    live CSR bus, not just "a" response:
+
+      1. READ32  identifier_mem[0]      vs. Step 2 (RemoteClient)
+      2. READ32  dna_id (multi-word)    vs. Step 4 (RemoteClient)
+      3. READ32  xadc_temperature       vs. Step 3 (RemoteClient)
+      4. Full AD9364 SPI ping over EP3  vs. Step 6 (RemoteClient)
+      5. WRITE32 leds_out (safe CSR)
+      6. READ32  leds_out               verify the write landed
+      7. READ32  to an unmapped address verify BUS_ERROR status, not a hang
+    """
+    dev = _usb_ep3_open()
+    checks = {}
+    all_ok = True
+    try:
+        # 1. SoC identifier — single word, first character(s).
+        ident_addr = bus.mems.identifier_mem.base
+        ep3_val = usb_ep3_read32(dev, ident_addr)
+        ref_val = bus.read(ident_addr)
+        ok = (ep3_val == ref_val)
+        checks["identifier[0]"] = {"ok": ok, "ep3": f"0x{ep3_val:08x}", "ref": f"0x{ref_val:08x}"}
+        all_ok &= ok
+
+        # 2. DNA — multi-word CSR, reconstructed the same way RemoteClient does.
+        ep3_dna = _usb_read_csr(dev, bus.regs.dna_id)
+        ref_dna = bus.regs.dna_id.read()
+        ok = (ep3_dna == ref_dna)
+        checks["dna_id"] = {"ok": ok, "ep3": f"0x{ep3_dna:016x}", "ref": f"0x{ref_dna:016x}"}
+        all_ok &= ok
+
+        # 3. XADC temperature — live sensor, allow it to have ticked slightly
+        #    between the two reads rather than requiring bit-exact equality.
+        ep3_temp_raw = _usb_read_csr(dev, bus.regs.xadc_temperature)
+        ref_temp_raw = bus.regs.xadc_temperature.read()
+        ok = abs(ep3_temp_raw - ref_temp_raw) <= 8   # a few raw ADC counts of drift
+        checks["xadc_temperature"] = {"ok": ok, "ep3": ep3_temp_raw, "ref": ref_temp_raw}
+        all_ok &= ok
+
+        # 4. AD9364 SPI product ID ping, entirely over EP3.
+        spi_addrs = {
+            "mosi":    bus.regs.ad9364_spi_mosi.addr,
+            "control": bus.regs.ad9364_spi_control.addr,
+            "status":  bus.regs.ad9364_spi_status.addr,
+            "miso":    bus.regs.ad9364_spi_miso.addr,
+        }
+        try:
+            ep3_chip_id = _usb_spi_read(dev, spi_addrs, 0x037)
+            ok = (ep3_chip_id == 0x0A)
+            checks["ad9364_product_id"] = {"ok": ok, "ep3": f"0x{ep3_chip_id:02x}", "expected": "0x0a"}
+        except TimeoutError as e:
+            checks["ad9364_product_id"] = {"ok": False, "error": str(e)}
+            ok = False
+        all_ok &= ok
+
+        # 5/6. WRITE32 + READ32 round-trip on a safe, writable CSR.
+        leds_addr = bus.regs.leds_out.addr
+        original_leds = usb_ep3_read32(dev, leds_addr)
+        test_pattern = (~original_leds) & 0x3
+        usb_ep3_write32(dev, leds_addr, test_pattern)
+        readback = usb_ep3_read32(dev, leds_addr)
+        usb_ep3_write32(dev, leds_addr, original_leds)   # restore
+        ok = (readback == test_pattern)
+        checks["leds_out write/readback"] = {"ok": ok, "wrote": test_pattern, "read": readback}
+        all_ok &= ok
+
+        # 7. Unmapped address must come back BUS_ERROR, not hang or silently
+        #    return garbage — proves the bridge's watchdog actually works.
+        UNMAPPED_ADDR = 0x00020000   # past the 64KB CSR region, no slave decode
+        status, _ = _usb_ep3_transact(dev, USB_OP_READ32, UNMAPPED_ADDR)
+        ok = (status == USB_STATUS_BUS_ERROR)
+        checks["unmapped address -> BUS_ERROR"] = {
+            "ok": ok, "status": USB_STATUS_NAMES.get(status, hex(status)),
+        }
+        all_ok &= ok
+
+    finally:
+        _usb_ep3_close(dev)
+
+    return all_ok, checks
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -602,6 +794,33 @@ def main():
         print(BOLD("Step 10 — PCIe DMA engine"))
         print("  [----]  Skipped (transport=jtag)")
         print()
+
+    # ── Step 11: USB EP3 control-plane bridge (independent of --transport) ─
+    print(BOLD("Step 11 — USB EP3 control bridge"))
+    if not has_usb:
+        print("  [----]  Skipped (no USB device detected)")
+    else:
+        try:
+            import usb.core  # noqa: F401  (just probing availability)
+        except ImportError:
+            print("  [----]  Skipped (pyusb not installed — pip install pyusb)")
+        else:
+            try:
+                ok, checks = test_usb_ep3_bridge(bus)
+                for name, info in checks.items():
+                    if "error" in info:
+                        result_line(name, False, info["error"])
+                    elif "status" in info:
+                        result_line(name, info["ok"], f"status={info['status']}")
+                    else:
+                        detail = ", ".join(f"{k}={v}" for k, v in info.items() if k != "ok")
+                        result_line(name, info["ok"], detail)
+                if not ok:
+                    failures.append("USB EP3 control bridge check(s) failed")
+            except Exception as e:
+                result_line("USB EP3 bridge", False, str(e))
+                failures.append(f"USB EP3 error: {e}")
+    print()
 
     bus.close()
 

@@ -160,10 +160,10 @@ Your Spectra SDR board comes **pre-flashed** with the v2 bitstream
 The plugin auto-detects which interface is available, PCIe wins automatically
 whenever it's linked up, and USB takes over otherwise. PCIe Gen2 x2 gives full
 61.44 MSPS throughput, USB 2.0 HS gives ~5 MSPS (sufficient for FM, ADS-B,
-and narrowband work). USB IQ is bidirectional at the FPGA level, but the
-SoapySDR USB plugin currently only implements RX streaming — TX host support
-is pending. Register/control access (AD9364 SPI, HyperRAM, XADC, DNA, all
-CSRs) is available over PCIe, USB (EP3), or JTAG independently.
+and narrowband work). USB IQ is bidirectional, both at the FPGA level and in
+the SoapySDR USB plugin (RX + TX, full duplex, sharing one USB 2.0 HS link).
+Register/control access (AD9364 SPI, HyperRAM, XADC, DNA, all CSRs) is
+available over PCIe, USB (EP3), or JTAG independently.
 
 If you ever need to re-flash or update the bitstream, download the latest
 `spectra_platform.bit` from
@@ -213,7 +213,7 @@ The module auto-loads on reboot. To remove it: `sudo make -C software/kernel uni
 ### Step 3 -- Run the hardware validation
 
 This is the first thing to run on a new board. The validation script checks
-**10 things** in about 2 seconds:
+**11 things** in a few seconds:
 
 ```bash
 sudo python3 validate_sdr.py
@@ -231,8 +231,9 @@ sudo python3 validate_sdr.py
 | 8 | AD9364 SPI bus integrity (scratch register loopback) |
 | 9 | LED toggle (look at the board -- both LEDs should blink) |
 | 10 | PCIe DMA engine idle check |
+| 11 | USB EP3 control bridge -- READ32/WRITE32 over raw USB bulk transfers, cross-checked against the same registers read via steps 2/3/4/6, plus a deliberate bad-address BUS_ERROR check. Runs whenever a USB device is detected, independent of `--transport`. Requires `pyusb` (`pip install pyusb`) |
 
-If all 10 steps pass and you see the **LEDs blink**, your board is working
+If all 11 steps pass and you see the **LEDs blink**, your board is working
 and ready for SDR applications.
 
 No PCIe? You can also validate via JTAG:
@@ -391,10 +392,10 @@ USB's EP3 protocol is a 12-byte command / 8-byte response bulk exchange:
 | Response (EP3 IN) | 0-3 | status -- `0x00` OK, `0x01` BUS_ERROR (timeout), `0x02` BAD_OPCODE |
 | | 4-7 | read data (32-bit LE) |
 
-*(Gateware-side: the bridge and endpoints are built and timing-clean as of
-this bitstream. The SoapySDR USB plugin doesn't call it yet -- today it
-does read-only IQ streaming; register access over USB currently requires
-talking to EP3 directly, e.g. via `libusb_bulk_transfer`.)*
+*(The SoapySDR USB plugin streams IQ over EP1/EP2, RX and TX, but doesn't
+call EP3 itself -- for register access from your own code, talk to EP3
+directly via `libusb_bulk_transfer` with the frame format above, or see
+`validate_sdr.py`'s Step 11 for a working example.)*
 
 Three clock domains:
 - `sys` -- 125 MHz (logic, DMA, Wishbone/CSR bus)
