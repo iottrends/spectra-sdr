@@ -297,11 +297,14 @@ def test_ad9364_spi(bus):
 
 
 def test_ad9364_reset_cycle(bus):
-    """Assert and deassert AD9364 reset, then re-read product ID."""
-    # PHY control bit 0 = rst_n (active-low reset).
-    bus.regs.ad9364_phy_control.write(0x00)   # assert reset (rst_n=0)
+    """Assert and deassert AD9364 reset (FPGA pin C14 / RESETB), then re-read product ID."""
+    # ad9364_reset is a dedicated register: it self-releases once the sys
+    # PLL locks (no software involvement needed on initial power-up), and
+    # reads back the live pin state at all times. This test just drives an
+    # explicit reset pulse on top of that.
+    bus.regs.ad9364_reset.write(0)   # assert reset (rst_n=0)
     time.sleep(0.01)
-    bus.regs.ad9364_phy_control.write(0x01)   # deassert reset (rst_n=1)
+    bus.regs.ad9364_reset.write(1)   # deassert reset (rst_n=1)
     time.sleep(0.05)                           # wait for RFIC boot
 
     ok, info = test_ad9364_spi(bus)

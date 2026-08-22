@@ -384,9 +384,35 @@ class AD9364Core(LiteXModule):
         self.rx_cdc = stream.ClockDomainCrossing(
             layout=dma_layout(64), cd_from="rfic", cd_to="sys")
 
-        # AD9364 control signals.
+        # AD9364 reset control (ad9364_reset CSR).
+        # rst_n is held low (RESETB asserted) while sys is settling (PLL not
+        # yet locked on the 40MHz TCXO). The instant sys comes out of reset,
+        # it self-releases once, with no software involvement. After that,
+        # it's a plain read/write bit: reads always reflect the live pin
+        # state, and software can assert/release it again at any time
+        # without a full FPGA reconfigure — see reset_ad9364() in
+        # scripts/ad9364_init.py.
+        self.reset = CSR()
+
+        rst_n_r = Signal(reset=0)  # drives the physical pin directly
+        sw_ctrl = Signal(reset=0)  # sticky: has software ever written this bit?
+
+        self.sync += [
+            If(ResetSignal("sys"),
+                rst_n_r.eq(0),
+                sw_ctrl.eq(0),
+            ).Elif(self.reset.re,
+                rst_n_r.eq(self.reset.r),  # software wrote — it owns the bit now
+                sw_ctrl.eq(1),
+            ).Elif(~sw_ctrl,
+                rst_n_r.eq(1),              # auto-release, once, before software ever writes
+            )
+            # else: software already owns it, no new write this cycle -> hold.
+        ]
+
         self.comb += [
-            rfic_pads.rst_n.eq(~ResetSignal("sys")),  # deassert reset when sys clock is running.
+            self.reset.w.eq(rst_n_r),  # readback always mirrors the live pin state
+            rfic_pads.rst_n.eq(rst_n_r),
             rfic_pads.enable.eq(1),                    # keep chip enabled.
             rfic_pads.txnrx.eq(0),                     # 0 = FDD mode (TX and RX simultaneous).
         ]

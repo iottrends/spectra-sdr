@@ -211,7 +211,9 @@ Implements the AD9364 LVDS DDR data interface in the `rfic` clock domain.
 - `2R2T`: 8-lane interleaving, DATA_CLK = sample_rate × 4
 
 **Control signals (driven from AD9364Core, sys domain → async):**
-- `rst_n` (C14) — active-low reset to AD9364
+- `rst_n` (C14) — active-low reset to AD9364; held low while sys is settling
+  (PLL not yet locked on the 40MHz TCXO), self-releases once, then it's a
+  plain software-controllable bit via the `ad9364_reset` CSR — see §6.3
 - `enable` (H18) — chip enable, held high
 - `txnrx` (F14) — 0 = FDD (simultaneous TX+RX)
 
@@ -477,23 +479,32 @@ All offsets are relative to BAR0 base / Wishbone `0x00000000`. All registers 32-
   MSI vectors:  reader done = 0,  writer done = 1
 ```
 
-### 6.3 AD9364 RFIC — `ad9364` (base 0x0800)
+### 6.3 AD9364 RFIC — `ad9364` (base CSR_BASE + 0x00)
+
+*Verified against the actual generated `build/spectra_platform/software/include/generated/csr.h`
+(2026-08-22) — this table previously stated base 0x0800, which was wrong even
+before the ad9364_reset addition; `ad9364` is CSR loc 0, i.e. base +0x00, not
++0x0800 (that's actually `ctrl`'s base).*
 
 ```
 ┌──────────────────────┬────────┬─────┬──────────────────────────────────────────────┐
 │ Register             │ Offset │ R/W │ Bit Fields                                   │
 ├──────────────────────┼────────┼─────┼──────────────────────────────────────────────┤
-│ ad9364_phy_control   │ 0x0800 │ RW  │ [0] rst_n  (1=run, 0=hold in reset)         │
+│ ad9364_phy_control   │ 0x00   │ RW  │ [0] mode (0=2R2T, 1=1R1T)                    │
 │                      │        │     │ [1] loopback (1=TX→RX internal loopback)     │
 ├──────────────────────┼────────┼─────┼──────────────────────────────────────────────┤
-│ ad9364_spi_control   │ 0x0804 │ RW  │ [0]    start  — pulse to begin transfer      │
+│ ad9364_spi_control   │ 0x04   │ RW  │ [0]    start  — pulse to begin transfer      │
 │                      │        │     │ [15:8] length — transfer length in bits (24) │
 ├──────────────────────┼────────┼─────┼──────────────────────────────────────────────┤
-│ ad9364_spi_status    │ 0x0808 │ RO  │ [0] done — 1 when transfer complete          │
+│ ad9364_spi_status    │ 0x08   │ RO  │ [0] done — 1 when transfer complete          │
 ├──────────────────────┼────────┼─────┼──────────────────────────────────────────────┤
-│ ad9364_spi_mosi      │ 0x080C │ RW  │ [23:0] — 24-bit SPI word to transmit        │
+│ ad9364_spi_mosi      │ 0x0c   │ RW  │ [23:0] — 24-bit SPI word to transmit        │
 ├──────────────────────┼────────┼─────┼──────────────────────────────────────────────┤
-│ ad9364_spi_miso      │ 0x0810 │ RO  │ [23:0] — 24-bit SPI word received           │
+│ ad9364_spi_miso      │ 0x10   │ RO  │ [23:0] — 24-bit SPI word received           │
+├──────────────────────┼────────┼─────┼──────────────────────────────────────────────┤
+│ ad9364_reset         │ 0x14   │ RW  │ [0] rst_n — self-releases once sys PLL locks │
+│                      │        │     │     (no SW needed on power-up); reads back   │
+│                      │        │     │     live pin state; SW-writable anytime after│
 └──────────────────────┴────────┴─────┴──────────────────────────────────────────────┘
 
   SPI frame format (24-bit):

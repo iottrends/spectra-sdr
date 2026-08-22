@@ -146,11 +146,17 @@ def check(label, condition, detail=""):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def reset_ad9364(bus):
-    """Hard reset the AD9364 via FPGA control pin."""
+    """Hard reset the AD9364 by toggling FPGA pin C14 (RESETB) via CSR.
+
+    ad9364_reset is a dedicated register (see spectra_target_v2.py's
+    AD9364Core): it self-releases once the sys PLL locks, with no software
+    involvement, and reads back the live pin state at all times. This
+    function just drives an explicit reset pulse on top of that.
+    """
     step("Asserting AD9364 reset...")
-    bus.regs.ad9364_phy_control.write(0x00)   # rst_n = 0
+    bus.regs.ad9364_reset.write(0)   # rst_n = 0 (RESETB low)
     time.sleep(0.01)
-    bus.regs.ad9364_phy_control.write(0x01)   # rst_n = 1
+    bus.regs.ad9364_reset.write(1)   # rst_n = 1 (RESETB high)
     time.sleep(0.05)                           # wait for boot
 
 

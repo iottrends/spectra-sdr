@@ -8,4 +8,4 @@ Start Address      0x00000000
 End Address        0x00FFFFFF
 
 Addr1         Addr2         Date                    File(s)
-0x00000000    0x0011B4A3    Aug 16 08:26:18 2026    spectra_platform.bit
+0x00000000    0x00134173    Aug 22 11:51:26 2026    spectra_platform.bit

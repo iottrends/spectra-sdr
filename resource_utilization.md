@@ -4,20 +4,23 @@
 
 | Build | Device | Speed | PCIe | Date |
 |---|---|---|---|---|
-| `spectra_platform` (our design, rev 4) | XC7A50T-2CSG325I | -2 | Yes (x2) + HyperRAM + AD9364 + USB IQ/CTRL + PCIe/USB Wishbone Bridges + IQ Stream Mux + JTAGBone + ICAP + XADC + DNA | 2026-08-16 |
+| `spectra_platform` (our design, rev 4.1) | XC7A50T-2CSG325I | -2 | Yes (x2) + HyperRAM + AD9364 + USB IQ/CTRL + PCIe/USB Wishbone Bridges + IQ Stream Mux + JTAGBone + ICAP + XADC + DNA | 2026-08-22 |
 | `litex_m2sdr_m2` (reference, no PCIe) | XC7A200T-3SBG484 | -3 | No | 2026-04-04 |
 | `litex_m2sdr_m2_pcie_x1` (reference, with PCIe) | XC7A200T-3SBG484 | -3 | Yes (x1) | 2026-04-04 |
 
 The `litex_m2sdr` reference columns are unchanged from the original comparison
 (no rebuild of that project was run in this pass) — only the "our design"
-column below reflects the current bitstream.
+column below reflects the current bitstream. Rev 4.1 adds the `ad9364_reset`
+CSR (dedicated self-releasing register for AD9364 RESETB/pin C14, replacing
+the earlier bit-2-of-`ad9364_phy_control` approach) on top of rev 4 — no
+other functional change.
 
 ## Resource Utilization (Post-Place)
 
-| Resource | Our design (rev 4, full) | litex_m2sdr (no PCIe) | litex_m2sdr (+ PCIe) |
+| Resource | Our design (rev 4.1, full) | litex_m2sdr (no PCIe) | litex_m2sdr (+ PCIe) |
 |---|---|---|---|
-| Slice LUTs | 5,773 / 32,600 = **17.71%** | 2,540 / 133,800 = 1.9% | 7,407 / 133,800 = 5.5% |
-| Registers | 6,333 / 65,200 = **9.71%** | 4,435 / 267,600 = 1.7% | 8,489 / 267,600 = 3.2% |
+| Slice LUTs | 5,770 / 32,600 = **17.70%** | 2,540 / 133,800 = 1.9% | 7,407 / 133,800 = 5.5% |
+| Registers | 6,332 / 65,200 = **9.71%** | 4,435 / 267,600 = 1.7% | 8,489 / 267,600 = 3.2% |
 | Block RAM Tiles | 28 / 75 = **37.33%** | 0 / 365 = 0% | 36 / 365 = 9.9% |
 | DSP | 0 / 120 = 0% | 0 / 740 = 0% | 0 / 740 = 0% |
 | GTPE2_CHANNEL | 2 / 4 = 50% (PCIe x2) | 0 / 4 = 0% | 1 / 4 = 25% |
@@ -25,16 +28,17 @@ column below reflects the current bitstream.
 | Bonded IOB | 69 / 150 = 46.00% | 64 / 285 = 22% | 65 / 285 = 23% |
 | BUFGCTRL | 12 / 32 = 37.50% | 7 / 32 = 22% | 11 / 32 = 34% |
 
-Post-route timing on the current build: WNS +0.247ns, WHS +0.053ns (0 setup/hold
+Post-route timing on the current build: WNS +0.275ns, WHS +0.050ns (0 setup/hold
 violations), one pre-existing pulse-width slack of -0.016ns on a single endpoint
 entirely inside the PCIe hard IP's own internal clocking (present in every build
-in this series, unrelated to any of the additions below). DRC: 0 errors, 3
-pre-existing warnings. Full detail in the Vivado reports under
-`build/spectra_platform/gateware/`.
+in this series, unrelated to any of the additions below). Per-clock, the
+`ad9364_rfic_rx_clk_p` domain (the one `ad9364_reset` and the rest of the AD9364
+PHY live in) closes at WNS +0.286ns / WHS +0.113ns. DRC: 0 errors, 3 pre-existing
+warnings. Full detail in the Vivado reports under `build/spectra_platform/gateware/`.
 
 ## Features in Each Build
 
-### Our design (`spectra_platform`, rev 4)
+### Our design (`spectra_platform`, rev 4.1)
 - PCIe Gen2 x2 (hard PCIE_2_1 block + LitePCIe DMA)
 - **PCIe Wishbone Bridge** (`LitePCIeWishboneMaster`) — BAR0 MMIO reaches the
   CSR bus, not just `pcie_dma0`'s own descriptor registers
@@ -97,15 +101,18 @@ synthesized and verified, not estimated):
 | + IQ Stream Mux (PCIe/USB share the AD9364 stream) | 5,276 | +264 |
 | + PCIe Wishbone Bridge (BAR0 &#8594; CSR bus) | 5,419 | +143 |
 | + USB Wishbone Bridge (EP3 &#8594; CSR bus) | 5,773 | +354 |
+| + `ad9364_reset` CSR (self-releasing register, replaces bit-2-of-`ad9364_phy_control`) | 5,770 | -3 |
 
 Both Wishbone bridges together (PCIe + USB, giving every host interface full
 CSR/register access) cost **~497 LUTs** on top of the IQ-mux baseline — modest,
-well inside budget. Reusing the original comparison's ~3,111-LUT estimate for
-the litex_m2sdr-exclusive feature list (SI5351, TimeGenerator/PPSGenerator,
-SharedQPLL, TX/RX Header, Loopback+Crossbar, PRBS/AGC, MultiClk, StatusLed) on
-top of the current 5,773, estimated total would be roughly **~8,900 LUTs ≈
-27% of our 32,600 LUTs** — still leaves well over half the fabric free for
-baseband / signal processing.
+well inside budget. The `ad9364_reset` change is a wash within synthesis
+run-to-run noise (a few FFs' worth of logic swapped for a few FFs' worth —
+not a real reduction, just how Vivado happened to pack this pass). Reusing the
+original comparison's ~3,111-LUT estimate for the litex_m2sdr-exclusive
+feature list (SI5351, TimeGenerator/PPSGenerator, SharedQPLL, TX/RX Header,
+Loopback+Crossbar, PRBS/AGC, MultiClk, StatusLed) on top of the current 5,770,
+estimated total would be roughly **~8,900 LUTs ≈ 27% of our 32,600 LUTs** —
+still leaves well over half the fabric free for baseband / signal processing.
 
 ### BRAM usage difference
 - Their PCIe DMA uses large descriptor FIFOs → 36 BRAM tiles.
@@ -123,7 +130,7 @@ limiting factor.
 ### XC7A50T device limits (for planning)
 | Resource | Total | Notes |
 |---|---|---|
-| Slice LUTs | 32,600 | 17.71% used by the full rev 4 feature set |
+| Slice LUTs | 32,600 | 17.70% used by the full rev 4.1 feature set |
 | Registers | 65,200 | 9.71% used |
 | Block RAM tiles | 75 | 28 used now; 47 free |
 | DSP48E1 | 120 | 0 used — all free |

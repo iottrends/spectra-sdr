@@ -101,7 +101,10 @@ The sequence configures approximately 300 internal registers in the correct orde
 
 ```
 Step 1:  Assert / deassert reset
-         → FPGA CSR: ad9364_phy_control[0] (rst_n) = 0, then 1
+         → FPGA CSR: ad9364_reset = 0, then 1
+           (drives FPGA pin C14 / AD9364 RESETB; self-releases once the sys
+           PLL locks even without this step, but reset_ad9364() in
+           scripts/ad9364_init.py drives an explicit pulse anyway)
 
 Step 2:  Configure BBPLL
          → Reference clock = 40 MHz (from TCXO)
@@ -127,13 +130,18 @@ Step 8:  Enable Rx path, enable Tx path
 
 The FPGA exposes the AD9364 SPI master as LiteX CSR registers:
 
+Addresses below are `ad9364` bank base (`CSR_BASE + 0x00` — `ad9364` is CSR
+loc 0, first-declared bank) + offset, verified against the actual generated
+`build/spectra_platform/software/include/generated/csr.h` (2026-08-22).
+
 | CSR Register | Address | Width | Description |
 |---|---|---|---|
-| `ad9364_spi_control` | `0x0804` | 32-bit RW | `[7:0]` = start (pulse), `[15:8]` = transfer length in bits |
-| `ad9364_spi_status` | `0x0808` | 32-bit RO | `[0]` = done flag |
-| `ad9364_spi_mosi` | `0x080C` | 32-bit RW | 24-bit SPI word to transmit |
-| `ad9364_spi_miso` | `0x0810` | 32-bit RO | 24-bit SPI word received |
-| `ad9364_phy_control` | `0x0800` | 32-bit RW | `[0]` = rst_n, `[1]` = loopback |
+| `ad9364_phy_control` | `CSR_BASE + 0x00` | 32-bit RW | `[0]` = mode, `[1]` = loopback |
+| `ad9364_spi_control` | `CSR_BASE + 0x04` | 32-bit RW | `[7:0]` = start (pulse), `[15:8]` = transfer length in bits |
+| `ad9364_spi_status` | `CSR_BASE + 0x08` | 32-bit RO | `[0]` = done flag |
+| `ad9364_spi_mosi` | `CSR_BASE + 0x0C` | 32-bit RW | 24-bit SPI word to transmit |
+| `ad9364_spi_miso` | `CSR_BASE + 0x10` | 32-bit RO | 24-bit SPI word received |
+| `ad9364_reset` | `CSR_BASE + 0x14` | 1-bit RW | `rst_n` — self-releases on sys PLL lock; reads back live pin state; software-writable anytime after |
 
 **AD9364 SPI frame format (24-bit):**
 
@@ -200,9 +208,10 @@ int32_t spi_write_and_read(struct spi_device *dev,
 // udelay() — use nanosleep or usleep
 void udelay(uint32_t usecs) { usleep(usecs); }
 
-// gpio_set_value() — drive rst_n, enable, txnrx via phy_control CSR
+// gpio_set_value() — drive rst_n via the ad9364_reset CSR; enable/txnrx are
+// hardwired (see AD9364Core), no GPIO mapping needed for those.
 void gpio_set_value(struct gpio_device *dev, uint8_t gpio, uint8_t val) {
-    // map gpio number to phy_control bits
+    // map "rst_n" gpio to the ad9364_reset CSR
 }
 ```
 
